@@ -1,7 +1,7 @@
 # metrics-mcp
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-3776AB.svg)](https://www.python.org/)
-[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Security policy](https://img.shields.io/badge/security-policy-blue.svg)](SECURITY.md)
 
 A read-only [Model Context Protocol (MCP)](https://modelcontextprotocol.io/)
@@ -175,5 +175,5 @@ or patches.
 
 ## License
 
-Released under the [MIT License](LICENSE). See [SECURITY.md](SECURITY.md) for
+Released under the [Apache License 2.0](LICENSE). See [SECURITY.md](SECURITY.md) for
 private vulnerability reporting.
