@@ -17,7 +17,7 @@ import os
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from .queries import COMPARE_MODELS, GET_METRICS, GET_MQI
+from .queries import COMPARE_MODELS, DEGRADATION_REPORT, GET_METRICS, GET_MQI, RECOMMEND_MODEL
 
 try:
     import psycopg2
@@ -211,14 +211,160 @@ def compare_models(spec_id: str) -> dict[str, Any]:
         return _err("compare_models failed", detail=_redact_detail(error))
 
 
-def recommend_model(task_type: str) -> dict[str, Any]:
-    """Return the current recommendation contract for a task category."""
+def recommend_model(task_type: str, period_days: int = 30) -> dict[str, Any]:
+    """Recommend a model for a task type based on historical metrics.
+
+    Maps ``task_type`` to the ``project`` column (the closest existing
+    category field). Confidence bands:
+
+    * ``high``            — sample_size >= 100
+    * ``medium``          — sample_size >= 30
+    * ``low``             — sample_size >= 10
+    * ``insufficient_data``— sample_size < 10 (no recommendation)
+
+    ``period_days`` clamps to [1, 365].
+    """
     if not task_type or not task_type.strip():
         return _err("task_type is required")
-    return _stub({
+    period_days = max(1, min(int(period_days or 30), 365))
+    since = datetime.now(timezone.utc) - timedelta(days=period_days)
+    try:
+        with _connect() as conn, conn.cursor() as cur:
+            cur.execute(RECOMMEND_MODEL, (task_type, since))
+            rows = cur.fetchall()
+    except Exception as error:
+        logger.exception("recommend_model failed")
+        return _err("recommend_model failed", detail=_redact_detail(error))
+
+    sample_size = sum(int(r["n"] or 0) for r in rows)
+
+    if sample_size < 10:
+        return {
+            "status": "ok",
+            "stub": False,
+            "task_type": task_type,
+            "period_days": period_days,
+            "sample_size": sample_size,
+            "recommendation": None,
+            "confidence": "insufficient_data",
+            "reason": (
+                f"Only {sample_size} runs with task_type={task_type!r} "
+                f"in the last {period_days} days. "
+                "Need at least 10 to produce a recommendation."
+            ),
+            "alternatives": [],
+        }
+
+    if sample_size >= 100:
+        confidence = "high"
+    elif sample_size >= 30:
+        confidence = "medium"
+    else:
+        confidence = "low"
+
+    def _score(row: dict[str, Any]) -> tuple[float, float, float]:
+        success_rate = (row["ok_count"] or 0) / row["n"] if row["n"] else 0.0
+        avg_sec = float(row["avg_sec"]) if row["avg_sec"] is not None else 1e9
+        avg_cost = float(row["avg_cost"]) if row["avg_cost"] is not None else 1e9
+        return success_rate, -avg_sec, -avg_cost
+
+    ranked = sorted(rows, key=_score, reverse=True)
+    top = ranked[0]
+    top_success_rate = round((top["ok_count"] or 0) / top["n"], 4) if top["n"] else 0.0
+
+    alternatives = [
+        {
+            "model": r["model"],
+            "n": int(r["n"] or 0),
+            "success_rate": round((r["ok_count"] or 0) / r["n"], 4) if r["n"] else 0.0,
+            "avg_sec": r["avg_sec"],
+            "avg_cost_usd": float(r["avg_cost"]) if r["avg_cost"] is not None else None,
+        }
+        for r in ranked[1:]
+    ]
+
+    reason_parts = [
+        f"Based on {sample_size} completed runs in the last {period_days} days.",
+        f"Top model {top['model']} has success_rate={top_success_rate:.1%} "
+        f"over {top['n']} runs.",
+    ]
+    if top.get("avg_sec") is not None:
+        reason_parts.append(f"avg duration {top['avg_sec']}s")
+    if top.get("avg_cost") is not None:
+        reason_parts.append(f"avg cost ${float(top['avg_cost']):.4f}")
+
+    return {
+        "status": "ok",
+        "stub": False,
         "task_type": task_type,
-        "hint": "Phase 2 will combine success rate, cost, latency, and quality",
-    })
+        "period_days": period_days,
+        "sample_size": sample_size,
+        "recommendation": top["model"],
+        "confidence": confidence,
+        "reason": "; ".join(reason_parts),
+        "alternatives": alternatives,
+        "top": {
+            "model": top["model"],
+            "n": int(top["n"] or 0),
+            "success_rate": top_success_rate,
+            "avg_sec": top["avg_sec"],
+            "avg_cost_usd": float(top["avg_cost"]) if top["avg_cost"] is not None else None,
+        },
+    }
+
+
+def get_degradation_report(model: str, window_days: int = 7) -> dict[str, Any]:
+    """Compare a model's recent window to the immediately-prior window.
+
+    Returns ``success_rate_delta`` and ``latency_delta_pct`` (positive =
+    worse). Returns ``insufficient_data`` when either window has < 3 runs.
+    """
+    if not model or not model.strip():
+        return _err("model is required")
+    window_days = max(1, min(int(window_days or 7), 365))
+    try:
+        with _connect() as conn, conn.cursor() as cur:
+            cur.execute(DEGRADATION_REPORT, (model, window_days, model, window_days, window_days))
+            row = cur.fetchone()
+    except Exception as error:
+        logger.exception("get_degradation_report failed")
+        return _err("get_degradation_report failed", detail=_redact_detail(error))
+
+    if not row or row["n_recent"] is None:
+        return _stub({"model": model, "window_days": window_days, "hint": "no recent data"})
+
+    n_recent = int(row["n_recent"] or 0)
+    n_prior = int(row["n_prior"] or 0)
+    if n_recent < 3 or n_prior < 3:
+        return {
+            "status": "ok",
+            "stub": False,
+            "model": model,
+            "window_days": window_days,
+            "verdict": "insufficient_data",
+            "reason": f"need >=3 runs in each window (recent={n_recent}, prior={n_prior})",
+            "recent": {"n": n_recent, "ok": int(row["ok_recent"] or 0), "avg_sec": row["avg_sec_recent"]},
+            "prior":  {"n": n_prior,  "ok": int(row["ok_prior"] or 0),  "avg_sec": row["avg_sec_prior"]},
+        }
+
+    verdict = "stable"
+    delta = row["success_rate_delta"]
+    if delta is not None and delta <= -0.10:
+        verdict = "degrading"
+    elif delta is not None and delta >= 0.10:
+        verdict = "improving"
+
+    return {
+        "status": "ok",
+        "stub": False,
+        "model": model,
+        "window_days": window_days,
+        "verdict": verdict,
+        "success_rate_delta": delta,
+        "latency_delta_pct": row["latency_delta_pct"],
+        "recent": {"n": n_recent, "ok": int(row["ok_recent"] or 0), "avg_sec": row["avg_sec_recent"]},
+        "prior":  {"n": n_prior,  "ok": int(row["ok_prior"] or 0),  "avg_sec": row["avg_sec_prior"]},
+    }
 
 
 def get_mqi(model: str, period: str = "7d") -> dict[str, Any]:
@@ -284,16 +430,37 @@ TOOL_DEFS = [
     },
     {
         "name": "recommend_model",
-        "description": "Recommend a model for a task type using MQI inputs.",
+        "description": "Recommend a model for a task type (mapped to project) using historical success rate, latency, and cost.",
         "input_schema": {
             "type": "object",
             "properties": {
                 "task_type": {
                     "type": "string",
-                    "description": "Task category such as code, review, or research",
+                    "description": "Task category (matches the project column), for example bizdnai or planet",
+                },
+                "period_days": {
+                    "type": "integer",
+                    "default": 30,
+                    "description": "Look-back window in days (1-365)",
                 },
             },
             "required": ["task_type"],
+        },
+    },
+    {
+        "name": "get_degradation_report",
+        "description": "Compare a model's recent window to the prior window of the same size; returns success_rate_delta and latency_delta_pct.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "model": {"type": "string", "description": "Model identifier"},
+                "window_days": {
+                    "type": "integer",
+                    "default": 7,
+                    "description": "Window size in days (1-365). Recent=now-window, prior=window before that.",
+                },
+            },
+            "required": ["model"],
         },
     },
     {
@@ -317,7 +484,14 @@ TOOL_DEFS = [
 HANDLERS = {
     "get_metrics": lambda args: get_metrics(args.get("model", ""), args.get("period", "7d")),
     "compare_models": lambda args: compare_models(args.get("spec_id", "")),
-    "recommend_model": lambda args: recommend_model(args.get("task_type", "")),
+    "recommend_model": lambda args: recommend_model(
+        args.get("task_type", ""),
+        args.get("period_days", 30),
+    ),
+    "get_degradation_report": lambda args: get_degradation_report(
+        args.get("model", ""),
+        args.get("window_days", 7),
+    ),
     "get_mqi": lambda args: get_mqi(args.get("model", ""), args.get("period", "7d")),
 }
 
@@ -403,6 +577,7 @@ __all__ = [
     "TOOL_DEFS",
     "compare_models",
     "create_server",
+    "get_degradation_report",
     "get_metrics",
     "get_mqi",
     "main",
