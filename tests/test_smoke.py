@@ -19,6 +19,7 @@ def test_package_imports_and_server_constructs_without_database():
         "compare_models",
         "recommend_model",
         "get_mqi",
+        "get_degradation_report",
     }
 
 
