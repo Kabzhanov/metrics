@@ -46,6 +46,16 @@ def _parse_bool(value: Any, field: str) -> bool:
     raise ValueError(f"share.{field} must be true or false")
 
 
+def _parse_interval_hours(value: Any, *, source: str) -> int | float:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError) as error:
+        raise ValueError(f"{source} must be a positive number") from error
+    if parsed <= 0:
+        raise ValueError(f"{source} must be a positive number")
+    return int(parsed) if parsed.is_integer() else parsed
+
+
 def _normalize(raw: Mapping[str, Any] | None) -> dict[str, dict[str, Any]]:
     config = copy.deepcopy(DEFAULT_CONFIG)
     if raw is None:
@@ -80,13 +90,7 @@ def _normalize(raw: Mapping[str, Any] | None) -> dict[str, dict[str, Any]]:
     token = share["token"]
     share["token"] = str(token).strip() if token is not None and str(token).strip() else None
 
-    try:
-        interval = float(share["interval_hours"])
-    except (TypeError, ValueError) as error:
-        raise ValueError("share.interval_hours must be a positive number") from error
-    if interval <= 0:
-        raise ValueError("share.interval_hours must be a positive number")
-    share["interval_hours"] = int(interval) if interval.is_integer() else interval
+    share["interval_hours"] = _parse_interval_hours(share["interval_hours"], source="share.interval_hours")
     return config
 
 
@@ -130,13 +134,7 @@ def load_config(
         if field in _BOOLEAN_FIELDS:
             value = _parse_bool(value, field)
         elif field == "interval_hours":
-            try:
-                parsed = float(value)
-            except (TypeError, ValueError) as error:
-                raise ValueError("METRICS_SHARE_INTERVAL_HOURS must be positive") from error
-            if parsed <= 0:
-                raise ValueError("METRICS_SHARE_INTERVAL_HOURS must be positive")
-            value = int(parsed) if parsed.is_integer() else parsed
+            value = _parse_interval_hours(value, source="METRICS_SHARE_INTERVAL_HOURS")
         elif field == "token":
             value = value.strip() or None
         else:
