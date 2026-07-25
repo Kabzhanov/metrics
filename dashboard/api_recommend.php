@@ -102,8 +102,18 @@ function score_models(array $rows, string $task_type): array {
     foreach ($rows as $r) {
         $success = (float)$r['success_rate'];
         $stability = (int)$r['total_runs'] > 0 ? (int)$r['stable_runs'] / (int)$r['total_runs'] : 0.0;
-        $cost_ratio = $min_cost > 0 && (float)$r['avg_cost_usd'] > 0 ? $min_cost / (float)$r['avg_cost_usd'] : 0.0;
-        $speed_ratio = $min_duration > 0 && (float)$r['avg_duration_sec'] > 0 ? $min_duration / (float)$r['avg_duration_sec'] : 0.0;
+        // Cost ratio: free/cheapest = 1.0, expensive = lower. NULL/0 cost = MAX (free = best).
+        $model_cost = (float)$r['avg_cost_usd'];
+        if ($model_cost <= 0) {
+            $cost_ratio = 1.0;  // free → max score
+        } elseif ($min_cost > 0 && $min_cost <= $model_cost) {
+            $cost_ratio = $min_cost / $model_cost;  // 1.0 for cheapest, < 1.0 for more expensive
+        } else {
+            $cost_ratio = 0.0;  // fallback (shouldn't happen)
+        }
+        // Speed ratio: fastest = 1.0, slower = lower
+        $model_dur = (float)$r['avg_duration_sec'];
+        $speed_ratio = ($min_duration > 0 && $model_dur > 0) ? $min_duration / $model_dur : 0.0;
 
         // Composite: 50% success, 20% cost, 20% speed, 10% stability
         $score = $success * 0.5
