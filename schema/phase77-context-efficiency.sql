@@ -8,14 +8,14 @@ SELECT
     date_trunc('day', tr.started_at)::date AS day,
     COUNT(*) AS total_runs,
     COUNT(*) FILTER (WHERE tr.status='success') AS verified_successes,
-    -- 1M tokens (input + output)
+    -- 1M tokens (input + output) per spec §8.9
     ROUND(
-        (SUM(COALESCE(tr.tokens_in, 0)) + SUM(COALESCE(tr.tokens_out, 0))) / 1000000.0,
+        (SUM(COALESCE(tr.input_tokens, 0)) + SUM(COALESCE(tr.output_tokens, 0))) / 1000000.0,
         4
     ) AS total_tokens_m,
     ROUND(
         COUNT(*) FILTER (WHERE tr.status='success')::numeric /
-        NULLIF((SUM(COALESCE(tr.tokens_in, 0)) + SUM(COALESCE(tr.tokens_out, 0))) / 1000000.0, 0),
+        NULLIF((SUM(COALESCE(tr.input_tokens, 0)) + SUM(COALESCE(tr.output_tokens, 0))) / 1000000.0, 0),
         2
     ) AS context_efficiency  -- verified successes per 1M tokens
 FROM task_runs tr
