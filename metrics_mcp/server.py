@@ -17,7 +17,9 @@ import os
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from .config import load_config
 from .queries import COMPARE_MODELS, DEGRADATION_REPORT, GET_METRICS, GET_MQI, RECOMMEND_MODEL
+from .share import start_share_thread
 
 try:
     import psycopg2
@@ -560,6 +562,8 @@ def main() -> None:
     """Process entry point; missing required settings fail before transport."""
     validate_db_config()
     logger.info("mcp-metrics starting (DB=%s:%s/%s)", DB_HOST, DB_PORT, DB_NAME)
+    share_config = load_config()
+    start_share_thread(_connect, share_config)
     try:
         asyncio.run(run())
     except KeyboardInterrupt:
