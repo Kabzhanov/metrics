@@ -326,8 +326,6 @@ class ShareSender:
             for item in all_queue_items
             if ignore_retry_time or item.retry_at <= now
         ]
-        # HIGH #1 fix: identify pending items by path, not dataclass equality
-        # (retry_at difference shouldn't make us re-send events already queued for retry)
         queued_paths = {item.path for item in queued_items}
         pending_items = [item for item in all_queue_items if item.path not in queued_paths]
         queued_events = [event for item in queued_items for event in item.events]
@@ -353,25 +351,13 @@ class ShareSender:
             logger.warning("could not collect local share events: %s", error)
             return {"status": "failed", "retry_in_seconds": 60, "queued": len(queued_events)}
 
-        # HIGH #2 fix: separate already-sampled events (in queue with sampled=True) from new ones
-        # so the 1% sample invariant holds across cycles (don't re-sample the same opaque_id).
-        already_sampled: list[dict[str, Any]] = []
-        pending_sample_pool: list[dict[str, Any]] = []
-        for event in queued_events:
-            (already_sampled if event.get("_sampled") else pending_sample_pool).append(event)
-        pending_sample_pool.extend(fresh_events)
-        events = self._deduplicate([*already_sampled, *pending_sample_pool])
+        events = self._deduplicate([*queued_events, *fresh_events])
         if not events:
             return {"status": "idle", "events": 0}
 
-        new_sample_pool = [e for e in events if not e.get("_sampled")]
-        selected_new, deferred_new = sample_events(new_sample_pool, self.rng)
-        # Mark new_selected as sampled so it won't be re-sampled on next cycle
-        for event in selected_new:
-            event["_sampled"] = True
-        selected = [e for e in events if e.get("_sampled")] + selected_new
-        if deferred_new:
-            self.queue.enqueue(deferred_new, attempts=0, retry_at=now)
+        selected, deferred = sample_events(events, self.rng)
+        if deferred:
+            self.queue.enqueue(deferred, attempts=0, retry_at=now)
 
         payload = build_batch(selected, token, now)
         attempts = max((item.attempts for item in queued_items), default=0) + 1
@@ -394,13 +380,13 @@ class ShareSender:
             return {
                 "status": "failed",
                 "events": len(selected),
-                "deferred": len(deferred_new),
+                "deferred": len(deferred),
                 "retry_in_seconds": retry_seconds,
             }
 
         self.queue.remove(queued_items)
         logger.info("shared %d anonymous metrics events", len(selected))
-        return {"status": "sent", "events": len(selected), "deferred": len(deferred_new)}
+        return {"status": "sent", "events": len(selected), "deferred": len(deferred)}
 
     def run_forever(self, stop_event: threading.Event | None = None) -> None:
         stop = stop_event or threading.Event()
