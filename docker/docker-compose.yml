@@ -1,0 +1,50 @@
+version: '3.8'
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: bizdnai
+      POSTGRES_PASSWORD: bizdnai
+      POSTGRES_DB: bizdnai
+    ports:
+      - "5434:5432"
+    volumes:
+      - metrics_db:/var/lib/postgresql/data
+      - ../schema/:/docker-entrypoint-initdb.d/
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bizdnai"]
+      interval: 10s
+
+  metrics-mcp:
+    build: .
+    environment:
+      METRICS_DB_HOST: postgres
+      METRICS_DB_PORT: 5432
+      METRICS_DB_NAME: bizdnai
+      METRICS_DB_USER: bizdnai
+      METRICS_DB_PASSWORD: bizdnai
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+
+  dashboard:
+    image: php:8.3-fpm
+    volumes:
+      - ../../var/www/bizdnai.com/metrics/:/var/www/metrics
+    depends_on:
+      - postgres
+
+  nginx:
+    image: nginx:alpine
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf
+    ports:
+      - "8080:80"
+    depends_on:
+      - metrics-mcp
+      - dashboard
+
+volumes:
+  metrics_db:
