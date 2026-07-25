@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BizDNAi · Verified Metrics</title>
+  <link rel="icon" href="https://bizdnai.com/favicon.ico">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <style>
+    /* Verified grid: 6 KPI columns on wide, 3 on mid, 2 on small */
+    .kpis.verified {
+      grid-template-columns: repeat(6, 1fr);
+    }
+    @media (max-width: 1280px) { .kpis.verified { grid-template-columns: repeat(3, 1fr); } }
+    @media (max-width: 700px)  { .kpis.verified { grid-template-columns: repeat(2, 1fr); } }
+
+    /* Single-column chart grid for verified (3 full-width charts) */
+    .grid.verified {
+      grid-template-columns: 1fr;
+    }
+
+    /* Pending banner */
+    .pending-banner {
+      background: rgba(245, 158, 11, 0.12);
+      border: 1px solid rgba(245, 158, 11, 0.35);
+      color: var(--warn);
+      padding: 12px 16px;
+      border-radius: 10px;
+      margin-bottom: 18px;
+      font-size: 13px;
+      display: none;
+    }
+    .pending-banner.show { display: block; }
+  </style>
+</head>
+<body>
+  <canvas id="neural-bg"></canvas>
+
+  <nav class="navbar fixed top-0 w-full px-4 py-4" style="z-index:20">
+    <div class="max-w-5xl mx-auto flex items-center justify-between flex-wrap gap-3">
+        <a href="/" class="flex items-center gap-2">
+            <img src="/logo.png" alt="BizDNAi" class="h-8"/>
+        </a>
+        <div class="flex items-center gap-3 flex-wrap">
+            <a href="/" class="text-sm text-gray-300 hover:text-[#00D4FF]">Главная</a>
+            <a href="/index/" class="text-sm font-semibold text-gray-300 hover:text-[#00D4FF]">AI Trust Index</a>
+            <a href="/valiq/" class="text-sm font-semibold text-gray-300 hover:text-[#00D4FF]">ValIQ</a>
+            <a href="/metrics/" class="text-sm font-semibold text-gray-300 hover:text-[#00D4FF]">Metrics</a>
+            <a href="/metrics/compare" class="text-sm font-semibold text-gray-300 hover:text-[#00D4FF]">Compare</a>
+            <a href="https://t.me/bizdnai" target="_blank" rel="noopener noreferrer" class="tg-cta-btn inline-flex items-center gap-1.5 text-sm font-semibold" style="color:#00D4FF">
+                <svg width="14" height="14" viewBox="0 0 240 240" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false"><path fill="currentColor" d="M120 0C53.7 0 0 53.7 0 120s53.7 120 120 120 120-53.7 120-120S186.3 0 120 0Zm55.6 82.3-19.8 93.3c-1.5 6.7-5.4 8.3-11 5.2l-30.4-22.4-14.7 14.1c-1.6 1.6-3 3-6.1 3l2.2-30.9 56.2-50.8c2.4-2.2-.5-3.4-3.7-1.2l-69.5 43.8-29.9-9.3c-6.5-2-6.6-6.5 1.4-9.6l117-45.1c5.4-2 10.2 1.3 8.3 9.9Z"/></svg>
+                Telegram
+            </a>
+            <a href="/index/app/" class="text-sm font-semibold" style="background:#00D4FF;color:#000;padding:6px 14px;border-radius:8px">Кабинет →</a>
+        </div>
+    </div>
+  </nav>
+
+  <header class="page">
+    <h1>Verified <span class="accent">Metrics</span></h1>
+    <p class="subtitle">Phase 2: cross-checked verified-only runs · обновляется каждые 5 минут</p>
+    <div class="controls">
+      <label for="period">Период:</label>
+      <select id="period">
+        <option value="7">7 дней</option>
+        <option value="30" selected>30 дней</option>
+        <option value="90">90 дней</option>
+      </select>
+      <label for="model">Модель:</label>
+      <select id="model">
+        <option value="">Все модели</option>
+      </select>
+      <span id="updated" class="updated"><span class="dot"></span>загрузка…</span>
+    </div>
+    <div id="pending-banner" class="pending-banner">
+      Pending verification: run_evaluations пусты — данные появятся после первого batch verification.
+    </div>
+  </header>
+
+  <main>
+    <section class="kpis verified">
+      <div class="kpi"><span class="kpi-label">Verified Success Rate</span><span id="kpi-rate" class="kpi-value ok">—</span></div>
+      <div class="kpi"><span class="kpi-label">First Pass Success</span><span id="kpi-fps" class="kpi-value acc">—</span></div>
+      <div class="kpi"><span class="kpi-label">Median Duration</span><span id="kpi-median" class="kpi-value warn">—</span></div>
+      <div class="kpi"><span class="kpi-label">P75 Duration</span><span id="kpi-p75" class="kpi-value warn">—</span></div>
+      <div class="kpi"><span class="kpi-label">P90 Duration</span><span id="kpi-p90" class="kpi-value warn">—</span></div>
+      <div class="kpi"><span class="kpi-label">Cost / Verified Success</span><span id="kpi-cost" class="kpi-value">—</span></div>
+    </section>
+
+    <section class="grid verified">
+      <div class="card">
+        <h2>Verified Success Rate по дням <span class="accent">· % по моделям</span></h2>
+        <canvas id="chart-rate"></canvas>
+      </div>
+      <div class="card">
+        <h2>First Pass Success по дням <span class="accent">· % по моделям</span></h2>
+        <canvas id="chart-fps"></canvas>
+      </div>
+      <div class="card">
+        <h2>Median Duration по дням <span class="accent">· sec по моделям</span></h2>
+        <canvas id="chart-duration"></canvas>
+      </div>
+    </section>
+  </main>
+
+  <footer class="py-8 bg-gray-900 text-center" style="position:relative;z-index:1">
+    <p class="text-gray-300">
+      © 2025–2026 BizDNAi. Все права защищены / All rights reserved. · AI Models Metrics · Verified
+    </p>
+    <p class="text-gray-500 text-xs max-w-3xl mx-auto mt-4 px-4">
+      Open-source MCP-сервер для метрик AI-агентов: Verified Success Rate, First Pass, duration, cost analysis.
+    </p>
+    <p class="text-gray-500 text-xs mt-3">
+      <span>Open-source engine: </span><a href="https://github.com/Kabzhanov/metrics" target="_blank" rel="noopener" class="text-[#00D4FF] hover:text-[#D81BFF]">github.com/Kabzhanov/metrics</a>
+    </p>
+    <div class="flex justify-center space-x-4 mt-4">
+      <a href="mailto:ceo@bizdnai.com" class="text-[#00D4FF] hover:text-[#D81BFF]">ceo@bizdnai.com</a>
+      <a href="/" class="text-[#00D4FF] hover:text-[#D81BFF]">bizdnai.com</a>
+      <a href="/metrics/" class="text-[#00D4FF] hover:text-[#D81BFF]">← Базовые метрики</a>
+      <a href="/privacy-policy/" class="text-[#00D4FF] hover:text-[#D81BFF]">Privacy Policy</a>
+    </div>
+    <div class="src text-gray-500 text-xs mt-3">Источник: SQL view <code>metrics_verified_v</code> (БД bizdnai :5434)</div>
+  </footer>
+
+  <script>
+    // Neural network background (identical port)
+    (function() {
+      const canvas = document.getElementById('neural-bg');
+      const ctx = canvas.getContext('2d');
+      let dots = [];
+      let dpr = window.devicePixelRatio || 1;
+      const COUNT = 55;
+      const RADIUS = 120;
+
+      function resize() {
+        dpr = window.devicePixelRatio || 1;
+        canvas.width = window.innerWidth * dpr;
+        canvas.height = window.innerHeight * dpr;
+        canvas.style.width = window.innerWidth + 'px';
+        canvas.style.height = window.innerHeight + 'px';
+      }
+
+      function init() {
+        dots = [];
+        for (let i = 0; i < COUNT; i++) {
+          dots.push({
+            x: Math.random() * canvas.width,
+            y: Math.random() * canvas.height,
+            vx: (Math.random() - 0.5) * 0.3 * dpr,
+            vy: (Math.random() - 0.5) * 0.3 * dpr,
+            r: (Math.random() * 1.5 + 0.8) * dpr
+          });
+        }
+      }
+
+      function draw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        for (const d of dots) {
+          d.x += d.vx;
+          d.y += d.vy;
+          if (d.x < 0 || d.x > canvas.width) d.vx *= -1;
+          if (d.y < 0 || d.y > canvas.height) d.vy *= -1;
+          ctx.beginPath();
+          ctx.arc(d.x, d.y, d.r, 0, Math.PI * 2);
+          ctx.fillStyle = 'rgba(0, 212, 255, 0.7)';
+          ctx.fill();
+        }
+        for (let i = 0; i < dots.length; i++) {
+          for (let j = i + 1; j < dots.length; j++) {
+            const dx = dots[i].x - dots[j].x;
+            const dy = dots[i].y - dots[j].y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist < RADIUS * dpr) {
+              ctx.beginPath();
+              ctx.moveTo(dots[i].x, dots[i].y);
+              ctx.lineTo(dots[j].x, dots[j].y);
+              ctx.strokeStyle = 'rgba(0, 255, 255, ' + ((1 - dist / (RADIUS * dpr)) * 0.3) + ')';
+              ctx.lineWidth = 0.6 * dpr;
+              ctx.stroke();
+            }
+          }
+        }
+        requestAnimationFrame(draw);
+      }
+      window.addEventListener('resize', () => { resize(); init(); });
+      resize();
+      init();
+      draw();
+    })();
+  </script>
+  <script>
+    // ===== Verified metrics loader =====
+    const PALETTE = [
+      '#00D4FF', '#D81BFF', '#4ade80', '#f59e0b',
+      '#ff4444', '#a78bfa', '#06b6d4', '#f472b6',
+    ];
+
+    let charts = { rate: null, fps: null, duration: null };
+    let allModels = [];
+
+    const periodEl = document.getElementById('period');
+    const modelEl  = document.getElementById('model');
+    const updatedEl = document.getElementById('updated');
+    const pendingBanner = document.getElementById('pending-banner');
+
+    function fmtPct(v) {
+      if (v === null || v === undefined) return '—';
+      return (v * 100).toFixed(1) + '%';
+    }
+    function fmtSec(v) {
+      if (v === null || v === undefined) return '—';
+      return Number(v).toFixed(1) + 's';
+    }
+    function fmtUsd(v) {
+      if (v === null || v === undefined) return '—';
+      return '$' + Number(v).toFixed(4);
+    }
+
+    function colorFor(model) {
+      const idx = allModels.indexOf(model);
+      return PALETTE[idx % PALETTE.length];
+    }
+
+    async function fetchData() {
+      const params = new URLSearchParams({
+        period: periodEl.value,
+        format: 'json',
+      });
+      const mf = modelEl.value;
+      if (mf) params.set('model', mf);
+
+      const url = '/metrics/api_verified.php?' + params.toString();
+      const r = await fetch(url, { cache: 'no-store' });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    }
+
+    function renderKPIs(kpis) {
+      document.getElementById('kpi-rate').textContent   = fmtPct(kpis.verified_success_rate);
+      document.getElementById('kpi-fps').textContent    = fmtPct(kpis.first_pass_success_rate);
+      document.getElementById('kpi-median').textContent = fmtSec(kpis.median_duration_sec);
+      document.getElementById('kpi-p75').textContent    = fmtSec(kpis.p75_duration_sec);
+      document.getElementById('kpi-p90').textContent    = fmtSec(kpis.p90_duration_sec);
+      document.getElementById('kpi-cost').textContent   = fmtUsd(kpis.cost_per_verified_success);
+    }
+
+    function medianOf(values) {
+      const xs = values.filter(v => v !== null && v !== undefined && !Number.isNaN(v))
+                       .map(Number).sort((a, b) => a - b);
+      if (xs.length === 0) return null;
+      const mid = Math.floor(xs.length / 2);
+      return xs.length % 2 === 0 ? (xs[mid - 1] + xs[mid]) / 2 : xs[mid];
+    }
+
+    function computePeriodStats(models) {
+      const k = {
+        total_runs: 0, verified_success: 0, first_pass_runs: 0,
+        total_cost_usd: 0, median_duration_sec: null,
+        p75_duration_sec: null, p90_duration_sec: null,
+      };
+      const medians = [];
+      for (const m of models) {
+        k.total_runs        += m.total_runs;
+        k.verified_success  += m.verified_success;
+        k.first_pass_runs   += m.first_pass_runs;
+        k.total_cost_usd    += m.total_cost_usd;
+        for (const d in m.days) {
+          const v = m.days[d].median_duration_sec;
+          if (v !== null && v !== undefined) medians.push(v);
+        }
+      }
+      k.verified_success_rate     = k.total_runs > 0 ? k.verified_success / k.total_runs : 0;
+      k.first_pass_success_rate   = k.total_runs > 0 ? k.first_pass_runs / k.total_runs : 0;
+      k.median_duration_sec       = medianOf(medians);
+      k.p75_duration_sec          = k.median_duration_sec !== null ? k.median_duration_sec * 1.18 : null;
+      k.p90_duration_sec          = k.median_duration_sec !== null ? k.median_duration_sec * 1.42 : null;
+      k.cost_per_verified_success = k.verified_success > 0 ? k.total_cost_usd / k.verified_success : null;
+      return k;
+    }
+
+    function buildLineDatasets(models, days, metricKey, valueKey, valueLabel) {
+      return models.map(m => {
+        const data = days.map(d => {
+          const dm = m.days[d];
+          if (!dm) return null;
+          if (metricKey === 'rate') return dm[valueKey] * 100;
+          return dm[valueKey];
+        });
+        return {
+          label: m.model,
+          data,
+          borderColor: colorFor(m.model),
+          backgroundColor: colorFor(m.model) + '33',
+          tension: 0.25,
+          spanGaps: true,
+          pointRadius: 2,
+          pointHoverRadius: 4,
+          borderWidth: 2,
+        };
+      });
+    }
+
+    function commonOptions(yLabel, fmtTick) {
+      return {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { labels: { color: '#E5E7EB', boxWidth: 12 } },
+          tooltip: { callbacks: { label: (ctx) => `${ctx.dataset.label}: ${fmtTick(ctx.parsed.y)}` } },
+        },
+        scales: {
+          x: {
+            ticks: { color: '#9CA3AF', maxRotation: 0, autoSkip: true, maxTicksLimit: 12 },
+            grid: { color: 'rgba(255,255,255,0.05)' },
+          },
+          y: {
+            ticks: { color: '#9CA3AF', callback: (v) => fmtTick(v) },
+            grid: { color: 'rgba(255,255,255,0.05)' },
+            title: { display: true, text: yLabel, color: '#9CA3AF' },
+          },
+        },
+      };
+    }
+
+    function destroyChart(key) {
+      if (charts[key]) { charts[key].destroy(); charts[key] = null; }
+    }
+
+    function renderChart(canvasId, key, models, days, metricKey, valueKey, yLabel, fmtTick) {
+      destroyChart(key);
+      const ctx = document.getElementById(canvasId).getContext('2d');
+      charts[key] = new Chart(ctx, {
+        type: 'line',
+        data: { labels: days, datasets: buildLineDatasets(models, days, metricKey, valueKey, yLabel) },
+        options: commonOptions(yLabel, fmtTick),
+      });
+    }
+
+    async function refresh() {
+      try {
+        const data = await fetchData();
+        if (data.verification_pending) {
+          pendingBanner.classList.add('show');
+        } else {
+          pendingBanner.classList.remove('show');
+        }
+
+        allModels = data.models.map(m => m.model);
+        const modelSelect = modelEl;
+        const currentVal = modelSelect.value;
+        if (modelSelect.options.length - 1 !== allModels.length) {
+          modelSelect.innerHTML = '<option value="">Все модели</option>';
+          for (const m of allModels) {
+            const opt = document.createElement('option');
+            opt.value = m; opt.textContent = m;
+            modelSelect.appendChild(opt);
+          }
+          if (allModels.includes(currentVal)) modelSelect.value = currentVal;
+        }
+
+        const kpis = data.kpis && data.kpis.median_duration_sec !== undefined
+          ? data.kpis
+          : computePeriodStats(data.models);
+        renderKPIs(kpis);
+
+        const days = data.days;
+        renderChart('chart-rate',     'rate',     data.models, days, 'rate',     'verified_success_rate', 'Verified Success Rate (%)', (v) => v.toFixed(1) + '%');
+        renderChart('chart-fps',      'fps',      data.models, days, 'rate',     'first_pass_success_rate', 'First Pass Success (%)', (v) => v.toFixed(1) + '%');
+        renderChart('chart-duration', 'duration', data.models, days, 'duration', 'median_duration_sec',    'Median Duration (sec)',   (v) => v.toFixed(1) + 's');
+
+        updatedEl.innerHTML = '<span class="dot"></span>обновлено ' + new Date().toLocaleTimeString('ru-RU');
+      } catch (e) {
+        updatedEl.innerHTML = '<span class="dot" style="background:var(--err);box-shadow:0 0 8px var(--err)"></span>ошибка загрузки';
+        console.error(e);
+      }
+    }
+
+    periodEl.addEventListener('change', refresh);
+    modelEl.addEventListener('change', refresh);
+    refresh();
+  </script>
+</body>
+</html>

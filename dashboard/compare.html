@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BizDNAi · Model Comparison by Task Type</title>
+  <link rel="icon" href="https://bizdnai.com/favicon.ico">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    .compare-kpis {
+      grid-template-columns: repeat(4, 1fr);
+    }
+    @media (max-width: 1100px) { .compare-kpis { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 600px)  { .compare-kpis { grid-template-columns: 1fr; } }
+
+    .filters-row {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .filter-group {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .filter-group label {
+      font-size: 11px;
+      color: var(--muted, #9CA3AF);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .chip-multiselect {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      max-width: 520px;
+    }
+    .chip {
+      font-size: 11px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.10);
+      color: #E5E7EB;
+      cursor: pointer;
+      user-select: none;
+      transition: all 0.15s ease;
+    }
+    .chip:hover { border-color: rgba(0,212,255,0.4); }
+    .chip.active {
+      background: rgba(0,212,255,0.18);
+      border-color: #00D4FF;
+      color: #00D4FF;
+    }
+    .table-wrap.compare-table {
+      max-height: 70vh;
+      overflow: auto;
+    }
+    .compare-table table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    .compare-table th {
+      position: sticky;
+      top: 0;
+      background: rgba(15, 23, 42, 0.95);
+      backdrop-filter: blur(8px);
+      color: #9CA3AF;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      font-size: 11px;
+      padding: 12px 10px;
+      cursor: pointer;
+      user-select: none;
+      border-bottom: 1px solid rgba(255,255,255,0.10);
+      z-index: 1;
+    }
+    .compare-table th:hover { color: #00D4FF; }
+    .compare-table th .sort-indicator {
+      display: inline-block;
+      margin-left: 4px;
+      font-size: 10px;
+      opacity: 0.4;
+    }
+    .compare-table th.sorted-asc .sort-indicator::before  { content: '▲'; opacity: 1; }
+    .compare-table th.sorted-desc .sort-indicator::before { content: '▼'; opacity: 1; }
+    .compare-table td {
+      padding: 10px;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+      font-size: 13px;
+      color: #E5E7EB;
+    }
+    .compare-table tbody tr:hover { background: rgba(0,212,255,0.05); }
+    .compare-table .best-row { background: rgba(74, 222, 128, 0.06); }
+    .best-badge {
+      display: inline-block;
+      background: rgba(74, 222, 128, 0.15);
+      color: #4ade80;
+      border: 1px solid rgba(74, 222, 128, 0.4);
+      padding: 1px 8px;
+      border-radius: 6px;
+      font-size: 10px;
+      font-weight: 600;
+      margin-left: 6px;
+      vertical-align: middle;
+    }
+    .task-pill {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 6px;
+      background: rgba(167, 139, 250, 0.12);
+      border: 1px solid rgba(167, 139, 250, 0.35);
+      color: #a78bfa;
+      font-size: 11px;
+      font-weight: 500;
+    }
+    .model-name {
+      font-family: 'JetBrains Mono', ui-monospace, monospace;
+      color: #00D4FF;
+    }
+    .good-cell { color: #4ade80; }
+    .mid-cell  { color: #f59e0b; }
+    .bad-cell  { color: #ff4444; }
+  </style>
+</head>
+<body>
+  <canvas id="neural-bg"></canvas>
+
+  <nav class="navbar fixed top-0 w-full px-4 py-4" style="z-index:20">
+    <div class="max-w-6xl mx-auto flex items-center justify-between flex-wrap gap-3">
+        <a href="/" class="flex items-center gap-2">
+            <img src="/logo.png" alt="BizDNAi" class="h-8"/>
+        </a>
+        <div class="flex items-center gap-3 flex-wrap">
+            <a href="/" class="text-sm text-gray-300 hover:text-[#00D4FF]">Главная</a>
+            <a href="/index/" class="text-sm font-semibold text-gray-300 hover:text-[#00D4FF]">AI Trust Index</a>
+            <a href="/valiq/" class="text-sm font-semibold text-gray-300 hover:text-[#00D4FF]">ValIQ</a>
+            <a href="/metrics/" class="text-sm font-semibold text-gray-300 hover:text-[#00D4FF]">Metrics</a>
+            <a href="/metrics/verified" class="text-sm font-semibold text-gray-300 hover:text-[#00D4FF]">Verified</a>
+            <a href="/metrics/compare" class="text-sm font-semibold text-[#00D4FF]">Compare</a>
+            <a href="https://t.me/bizdnai" target="_blank" rel="noopener noreferrer" class="tg-cta-btn inline-flex items-center gap-1.5 text-sm font-semibold" style="color:#00D4FF">
+                <svg width="14" height="14" viewBox="0 0 240 240" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false"><path fill="currentColor" d="M120 0C53.7 0 0 53.7 0 120s120 120 120 120 120-53.7 120-120S186.3 0 120 0Zm55.6 82.3-19.8 93.3c-1.5 6.7-5.4 8.3-11 5.2l-30.4-22.4-14.7 14.1c-1.6 1.6-3 3-6.1 3l2.2-30.9-56.2-50.8c2.4-2.2-.5-3.4-3.4-3.7-1.2l-69.5 43.8-29.9-9.3c-6.5-2-6.6-6.5 1.4-9.6l117-45.1c5.4-2 10.2 1.3 8.3 9.9Z"/></svg>
+                Telegram
+            </a>
+            <a href="/index/app/" class="text-sm font-semibold" style="background:#00D4FF;color:#000;padding:6px 14px;border-radius:8px">Кабинет →</a>
+        </div>
+    </div>
+  </nav>
+
+  <header class="page">
+    <h1>Model Comparison <span class="accent">by Task Type</span></h1>
+    <p class="subtitle">Какая модель лучше для какой задачи</p>
+    <div class="controls">
+      <div class="filters-row">
+        <div class="filter-group">
+          <label for="period">Период</label>
+          <select id="period">
+            <option value="7">7 дней</option>
+            <option value="30" selected>30 дней</option>
+            <option value="90">90 дней</option>
+          </select>
+        </div>
+        <div class="filter-group">
+          <label>Task Type</label>
+          <div id="task-type-chips" class="chip-multiselect">
+            <span class="chip active" data-value="all">All</span>
+          </div>
+        </div>
+      </div>
+      <span id="updated" class="updated"><span class="dot"></span>загрузка…</span>
+    </div>
+  </header>
+
+  <main>
+    <section class="kpis compare-kpis">
+      <div class="kpi"><span class="kpi-label">Total Runs</span><span id="kpi-runs" class="kpi-value acc">—</span></div>
+      <div class="kpi"><span class="kpi-label">Models × Task Types</span><span id="kpi-cross" class="kpi-value">—</span></div>
+      <div class="kpi"><span class="kpi-label">Avg Success Rate</span><span id="kpi-rate" class="kpi-value ok">—</span></div>
+      <div class="kpi"><span class="kpi-label">Avg MQI Preview</span><span id="kpi-mqi" class="kpi-value warn">—</span></div>
+    </section>
+
+    <section class="card table-card">
+      <h2>Comparison Table <span class="accent">· model × task_type</span></h2>
+      <div class="table-wrap compare-table">
+        <table id="compare-table">
+          <thead>
+            <tr>
+              <th data-sort-key="model">Model <span class="sort-indicator"></span></th>
+              <th data-sort-key="task_type">Task Type <span class="sort-indicator"></span></th>
+              <th data-sort-key="total_runs" class="sorted-desc">Total Runs <span class="sort-indicator"></span></th>
+              <th data-sort-key="success_rate">Success Rate (%) <span class="sort-indicator"></span></th>
+              <th data-sort-key="avg_duration_sec">Avg Duration (s) <span class="sort-indicator"></span></th>
+              <th data-sort-key="avg_cost_usd">Avg Cost (USD) <span class="sort-indicator"></span></th>
+              <th data-sort-key="stability_rate">Stability (%) <span class="sort-indicator"></span></th>
+              <th data-sort-key="mqi_preview">MQI Preview <span class="sort-indicator"></span></th>
+            </tr>
+          </thead>
+          <tbody id="compare-body"></tbody>
+        </table>
+      </div>
+      <p id="empty-msg" style="display:none;text-align:center;padding:32px;color:#9CA3AF">
+        Нет данных для выбранных фильтров.
+      </p>
+    </section>
+  </main>
+
+  <footer class="py-8 bg-gray-900 text-center" style="position:relative;z-index:1">
+    <p class="text-gray-300">
+      © 2025–2026 BizDNAi. Все права защищены / All rights reserved. · AI Models Metrics · Compare by Task Type
+    </p>
+    <p class="text-gray-500 text-xs max-w-3xl mx-auto mt-4 px-4">
+      Open-source MCP-сервер для метрик AI-агентов: per-task-type model comparison, MQI preview.
+    </p>
+    <p class="text-gray-500 text-xs mt-3">
+      <span>Open-source engine: </span><a href="https://github.com/Kabzhanov/metrics" target="_blank" rel="noopener" class="text-[#00D4FF] hover:text-[#D81BFF]">github.com/Kabzhanov/metrics</a>
+    </p>
+    <div class="flex justify-center space-x-4 mt-4">
+      <a href="mailto:ceo@bizdnai.com" class="text-[#00D4FF] hover:text-[#D81BFF]">ceo@bizdnai.com</a>
+      <a href="/" class="text-[#00D4FF] hover:text-[#D81BFF]">bizdnai.com</a>
+      <a href="/metrics/" class="text-[#00D4FF] hover:text-[#D81BFF]">← Metrics</a>
+      <a href="/metrics/verified" class="text-[#00D4FF] hover:text-[#D81BFF]">Verified</a>
+      <a href="/privacy-policy/" class="text-[#00D4FF] hover:text-[#D81BFF]">Privacy Policy</a>
+    </div>
+    <div class="src text-gray-500 text-xs mt-3">Источник: SQL view <code>metrics_by_task_type_v</code> (БД bizdnai :5434) · задача #1176, фаза 6.5</div>
+  </footer>
+
+  <script>
+    // Neural network background (identical port)
+    (function() {
+      const canvas = document.getElementById('neural-bg');
+      const ctx = canvas.getContext('2d');
+      let dots = [];
+      let dpr = window.devicePixelRatio || 1;
+      const COUNT = 55;
+      const RADIUS = 120;
+
+      function resize() {
+        dpr = window.devicePixelRatio || 1;
+        canvas.width = window.innerWidth * dpr;
+        canvas.height = window.innerHeight * dpr;
+        canvas.style.width = window.innerWidth + 'px';
+        canvas.style.height = window.innerHeight + 'px';
+      }
+      function init() {
+        dots = [];
+        for (let i = 0; i < COUNT; i++) {
+          dots.push({
+            x: Math.random() * canvas.width,
+            y: Math.random() * canvas.height,
+            vx: (Math.random() - 0.5) * 0.3 * dpr,
+            vy: (Math.random() - 0.5) * 0.3 * dpr,
+            r: (Math.random() * 1.5 + 0.8) * dpr
+          });
+        }
+      }
+      function draw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        for (const d of dots) {
+          d.x += d.vx; d.y += d.vy;
+          if (d.x < 0 || d.x > canvas.width) d.vx *= -1;
+          if (d.y < 0 || d.y > canvas.height) d.vy *= -1;
+          ctx.beginPath();
+          ctx.arc(d.x, d.y, d.r, 0, Math.PI * 2);
+          ctx.fillStyle = 'rgba(0, 212, 255, 0.7)';
+          ctx.fill();
+        }
+        for (let i = 0; i < dots.length; i++) {
+          for (let j = i + 1; j < dots.length; j++) {
+            const dx = dots[i].x - dots[j].x;
+            const dy = dots[i].y - dots[j].y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist < RADIUS * dpr) {
+              ctx.beginPath();
+              ctx.moveTo(dots[i].x, dots[i].y);
+              ctx.lineTo(dots[j].x, dots[j].y);
+              ctx.strokeStyle = 'rgba(0, 255, 255, ' + ((1 - dist / (RADIUS * dpr)) * 0.3) + ')';
+              ctx.lineWidth = 0.6 * dpr;
+              ctx.stroke();
+            }
+          }
+        }
+        requestAnimationFrame(draw);
+      }
+      window.addEventListener('resize', () => { resize(); init(); });
+      resize(); init(); draw();
+    })();
+  </script>
+
+  <script>
+    // ============== Compare by Task Type ==============
+    const periodEl   = document.getElementById('period');
+    const chipsEl    = document.getElementById('task-type-chips');
+    const updatedEl  = document.getElementById('updated');
+    const bodyEl     = document.getElementById('compare-body');
+    const emptyMsgEl = document.getElementById('empty-msg');
+    const tableEl    = document.getElementById('compare-table');
+
+    let allRows = [];
+    let allTaskTypes = [];
+    let selectedTaskTypes = new Set(); // empty => all
+    let sortKey = 'total_runs';
+    let sortDir = 'desc';
+
+    function fmtPct(v) {
+      if (v === null || v === undefined) return '—';
+      return (typeof v === 'number' ? v * 100 : 0).toFixed(1) + '%';
+    }
+    function fmtNum(v, digits = 1) {
+      if (v === null || v === undefined) return '—';
+      return Number(v).toFixed(digits);
+    }
+    function fmtCost(v) {
+      if (v === null || v === undefined) return '—';
+      return '$' + Number(v).toFixed(4);
+    }
+    function cellClass(v) {
+      if (v === null || v === undefined) return '';
+      if (typeof v !== 'number') return '';
+      if (v >= 0.9) return 'good-cell';
+      if (v >= 0.7) return 'mid-cell';
+      return 'bad-cell';
+    }
+
+    function renderChips() {
+      chipsEl.innerHTML = '';
+      const allChip = document.createElement('span');
+      allChip.className = 'chip' + (selectedTaskTypes.size === 0 ? ' active' : '');
+      allChip.dataset.value = 'all';
+      allChip.textContent = 'All';
+      allChip.addEventListener('click', () => {
+        selectedTaskTypes.clear();
+        renderChips();
+        renderTable();
+      });
+      chipsEl.appendChild(allChip);
+      for (const tt of allTaskTypes) {
+        const chip = document.createElement('span');
+        const isActive = selectedTaskTypes.size === 0 || selectedTaskTypes.has(tt);
+        chip.className = 'chip' + (isActive ? ' active' : '');
+        chip.dataset.value = tt;
+        chip.textContent = tt;
+        chip.addEventListener('click', () => {
+          if (selectedTaskTypes.size === 0) {
+            // switching from All -> specific: pre-select all then toggle
+            for (const t of allTaskTypes) selectedTaskTypes.add(t);
+          }
+          if (selectedTaskTypes.has(tt)) selectedTaskTypes.delete(tt);
+          else selectedTaskTypes.add(tt);
+          renderChips();
+          renderTable();
+        });
+        chipsEl.appendChild(chip);
+      }
+    }
+
+    function getFilteredRows() {
+      if (selectedTaskTypes.size === 0) return allRows;
+      return allRows.filter(r => selectedTaskTypes.has(r.task_type));
+    }
+
+    function findBestPerTaskType(rows) {
+      // best по mqi_preview в каждой task_type
+      const best = new Map();
+      for (const r of rows) {
+        const cur = best.get(r.task_type);
+        if (!cur || (r.mqi_preview || 0) > (cur.mqi_preview || 0)) {
+          best.set(r.task_type, r);
+        }
+      }
+      return best;
+    }
+
+    function renderTable() {
+      let rows = getFilteredRows();
+      // sort
+      const dirMult = sortDir === 'asc' ? 1 : -1;
+      rows.sort((a, b) => {
+        const av = a[sortKey];
+        const bv = b[sortKey];
+        if (av === null || av === undefined) return 1;
+        if (bv === null || bv === undefined) return -1;
+        if (typeof av === 'string') return av.localeCompare(bv) * dirMult;
+        return (av - bv) * dirMult;
+      });
+
+      // best per task_type (на отфильтрованных)
+      const bestMap = findBestPerTaskType(rows);
+
+      bodyEl.innerHTML = '';
+      if (rows.length === 0) {
+        emptyMsgEl.style.display = 'block';
+        return;
+      }
+      emptyMsgEl.style.display = 'none';
+
+      for (const r of rows) {
+        const tr = document.createElement('tr');
+        const isBest = bestMap.get(r.task_type) === r;
+        if (isBest) tr.classList.add('best-row');
+        const bestBadge = isBest ? '<span class="best-badge">★ TOP</span>' : '';
+        tr.innerHTML = `
+          <td><span class="model-name">${r.model}</span></td>
+          <td><span class="task-pill">${r.task_type}</span>${bestBadge}</td>
+          <td>${r.total_runs}</td>
+          <td class="${cellClass(r.success_rate)}">${fmtPct(r.success_rate)}</td>
+          <td>${fmtNum(r.avg_duration_sec)}</td>
+          <td>${fmtCost(r.avg_cost_usd)}</td>
+          <td class="${cellClass(r.stability_rate)}">${fmtPct(r.stability_rate)}</td>
+          <td class="${cellClass(r.mqi_preview)}">${fmtNum(r.mqi_preview, 3)}</td>
+        `;
+        bodyEl.appendChild(tr);
+      }
+    }
+
+    function renderKPIs(kpis) {
+      document.getElementById('kpi-runs').textContent  = kpis.total_runs;
+      document.getElementById('kpi-cross').textContent = `${kpis.models_count} × ${kpis.task_types_count}`;
+      document.getElementById('kpi-rate').textContent  = fmtPct(kpis.avg_success_rate);
+      document.getElementById('kpi-mqi').textContent   = fmtNum(kpis.avg_mqi_preview, 3);
+    }
+
+    // Sort header click
+    document.querySelectorAll('#compare-table th').forEach(th => {
+      th.addEventListener('click', () => {
+        const key = th.dataset.sortKey;
+        if (!key) return;
+        if (sortKey === key) {
+          sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+        } else {
+          sortKey = key;
+          sortDir = (key === 'model' || key === 'task_type') ? 'asc' : 'desc';
+        }
+        document.querySelectorAll('#compare-table th').forEach(t => t.classList.remove('sorted-asc', 'sorted-desc'));
+        th.classList.add(sortDir === 'asc' ? 'sorted-asc' : 'sorted-desc');
+        renderTable();
+      });
+    });
+
+    async function fetchData() {
+      const params = new URLSearchParams({ period: periodEl.value });
+      const url = '/metrics/api_comparison.php?' + params.toString();
+      const r = await fetch(url, { cache: 'no-store' });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    }
+
+    async function refresh() {
+      try {
+        const data = await fetchData();
+        allRows = data.rows || [];
+        allTaskTypes = data.task_types || [];
+        renderChips();
+        renderKPIs(data.kpis || {});
+        renderTable();
+        updatedEl.innerHTML = '<span class="dot"></span>обновлено ' + new Date().toLocaleTimeString('ru-RU');
+      } catch (e) {
+        updatedEl.innerHTML = '<span class="dot" style="background:var(--err);box-shadow:0 0 8px var(--err)"></span>ошибка загрузки';
+        console.error(e);
+      }
+    }
+
+    periodEl.addEventListener('change', refresh);
+    refresh();
+  </script>
+</body>
+</html>

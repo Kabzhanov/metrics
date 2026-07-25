@@ -1,0 +1,674 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BizDNAi Metrics Community — Federated Analytics</title>
+<meta name="description" content="Public community dashboard of federated mcp-metrics. Compare models across the community, opt-in to share your anonymous stats.">
+<link rel="icon" href="https://bizdnai.com/favicon.ico">
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="../style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  header.community-page { padding-top: 104px; padding-bottom: 24px; }
+  header.community-page h1 { font-size: 32px; }
+  header.community-page .subtitle { color: var(--muted); font-size: 15px; margin: 6px 0 0; }
+
+  .kpis.community { grid-template-columns: repeat(4, 1fr); }
+  @media (max-width: 1100px) { .kpis.community { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 600px)  { .kpis.community { grid-template-columns: 1fr; } }
+
+  .updated.community-updated { margin-left: auto; }
+
+  .community-empty {
+    padding: 48px 18px;
+    color: var(--muted);
+    background: rgba(255,255,255,0.03);
+    border: 1px dashed var(--card-border);
+    border-radius: 12px;
+    text-align: center;
+    font-size: 14px;
+  }
+
+  .compare-table.community-compare { max-height: 65vh; }
+  .community-table th { font-size: 11px; }
+  .community-table td { font-size: 13px; }
+
+  .bestper-task { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+  .bestper-card {
+    padding: 14px 16px;
+    background: var(--card);
+    border: 1px solid var(--card-border);
+    border-radius: 10px;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+  .bestper-card .task-label {
+    color: var(--muted);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 4px;
+  }
+  .bestper-card .task-model {
+    color: var(--accent);
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 14px;
+    font-weight: 600;
+  }
+  .bestper-card .task-meta {
+    margin-top: 4px;
+    color: var(--muted);
+    font-size: 12px;
+  }
+  .bestper-card .task-meta strong { color: var(--text); }
+
+  .section-heading { margin: 28px 0 14px; }
+  .section-heading h2 { margin: 0 0 4px; font-size: 18px; font-weight: 700; color: var(--text); }
+  .section-heading p { margin: 0; color: var(--muted); font-size: 12px; }
+
+  .privacy-table th, .privacy-table td { font-size: 13px; }
+  .privacy-table td.yes { color: var(--ok); }
+  .privacy-table td.no { color: var(--err); }
+  .privacy-table td.optional { color: var(--warn); }
+
+  .token-block {
+    padding: 14px 16px;
+    background: rgba(0, 212, 255, 0.06);
+    border: 1px dashed var(--accent);
+    border-radius: 10px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 13px;
+    color: #d8e6ff;
+    word-break: break-all;
+    margin: 10px 0;
+  }
+  .warn-box {
+    padding: 10px 14px;
+    background: rgba(245, 158, 11, 0.10);
+    border: 1px solid var(--warn);
+    border-radius: 8px;
+    color: var(--warn);
+    font-size: 13px;
+    margin: 10px 0;
+  }
+  .form-input {
+    width: 100%;
+    padding: 10px 12px;
+    background: var(--card);
+    border: 1px solid var(--card-border);
+    border-radius: 8px;
+    color: var(--text);
+    font-size: 14px;
+    margin-bottom: 12px;
+    font-family: inherit;
+  }
+  .form-input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .btn-primary {
+    padding: 10px 18px;
+    background: var(--accent);
+    color: #000;
+    border: 0;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .btn-primary:hover { filter: brightness(1.1); }
+  .btn-primary:disabled { opacity: 0.55; cursor: wait; }
+  .btn-secondary {
+    padding: 8px 14px;
+    color: var(--text);
+    background: var(--card);
+    border: 1px solid var(--card-border);
+    border-radius: 8px;
+    font-size: 13px;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .btn-secondary:hover { border-color: var(--accent); }
+  .help-text { color: var(--muted); font-size: 12px; margin: 4px 0 0; }
+  .ok-text { color: var(--ok); }
+  .err-text { color: var(--err); }
+  .hidden { display: none; }
+
+  .refresh-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--ok);
+    margin-right: 6px;
+    box-shadow: 0 0 8px var(--ok);
+    animation: pulse 2s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
+  .model-name { color: var(--accent); font-family: "JetBrains Mono", ui-monospace, monospace; }
+  .good-cell { color: var(--ok); }
+  .mid-cell { color: var(--warn); }
+  .bad-cell { color: var(--err); }
+
+  .privacy-list { padding-left: 20px; color: var(--text); font-size: 14px; }
+  .privacy-list li { margin-bottom: 8px; }
+  .privacy-list strong { color: var(--accent); }
+</style>
+</head>
+<body>
+  <canvas id="neural-bg"></canvas>
+
+  <nav class="navbar fixed top-0 w-full px-4 py-4" style="z-index:20">
+    <div class="max-w-6xl mx-auto flex items-center justify-between flex-wrap gap-3">
+      <a href="/" class="flex items-center gap-2">
+        <img src="/logo.png" alt="BizDNAi" class="h-8">
+      </a>
+      <div class="flex items-center gap-3 flex-wrap">
+        <a href="/" class="text-sm text-gray-300 hover:text-[#00D4FF]">Главная</a>
+        <a href="/index/" class="text-sm font-semibold text-gray-300 hover:text-[#00D4FF]">AI Trust Index</a>
+        <a href="/valiq/" class="text-sm font-semibold text-gray-300 hover:text-[#00D4FF]">ValIQ</a>
+        <a href="/metrics/" class="text-sm font-semibold text-gray-300 hover:text-[#00D4FF]">Metrics</a>
+        <a href="/metrics/community/" class="text-sm font-semibold text-[#00D4FF]">Community</a>
+        <a href="https://t.me/bizdnai" target="_blank" rel="noopener noreferrer" class="tg-cta-btn inline-flex items-center gap-1.5 text-sm font-semibold" style="color:#00D4FF">
+          <svg width="14" height="14" viewBox="0 0 240 240" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false"><path fill="currentColor" d="M120 0C53.7 0 0 53.7 0 120s53.7 120 120 120 120-53.7 120-120S186.3 0 120 0Zm55.6 82.3-19.8 93.3c-1.5 6.7-5.4 8.3-11 5.2l-30.4-22.4-14.7 14.1c-1.6 1.6-3 3-6.1 3l2.2-30.9 56.2-50.8c2.4-2.2-.5-3.4-3.7-1.2l-69.5 43.8-29.9-9.3c-6.5-2-6.6-6.5 1.4-9.6l117-45.1c5.4-2 10.2 1.3 8.3 9.9Z"/></svg>
+          Telegram
+        </a>
+      </div>
+    </div>
+  </nav>
+
+  <main class="max-w-6xl mx-auto px-4">
+    <header class="community-page">
+      <h1>BizDNAi Metrics <span class="accent">Community</span></h1>
+      <p class="subtitle">Federated, anonymous, opt-in. What models actually win in the wild.</p>
+      <p class="mt-3">
+        <span class="pill">opt-in</span>
+        <span class="pill">no email</span>
+        <span class="pill">revocable</span>
+        <span class="pill">no proprietary code</span>
+        <span class="pill">no leaderboard</span>
+      </p>
+    </header>
+
+    <section id="dashboard">
+      <div class="section-heading flex items-center justify-between flex-wrap gap-2">
+        <div>
+          <h2>Community Dashboard</h2>
+          <p>F3 · updates every 5 minutes · server-side cache 5 min</p>
+        </div>
+        <span id="community-updated" class="updated text-xs"><span class="refresh-dot"></span>loading…</span>
+      </div>
+
+      <section class="kpis community">
+        <div class="kpi"><span class="kpi-label">Total Events</span><span id="kpi-events" class="kpi-value acc">—</span></div>
+        <div class="kpi"><span class="kpi-label">Unique Submitters</span><span id="kpi-submitters" class="kpi-value">—</span></div>
+        <div class="kpi"><span class="kpi-label">Unique Models</span><span id="kpi-models" class="kpi-value ok">—</span></div>
+        <div class="kpi"><span class="kpi-label">Task Types</span><span id="kpi-task-types" class="kpi-value warn">—</span></div>
+      </section>
+
+      <section id="community-data-block" class="hidden">
+        <section class="grid">
+          <div class="card">
+            <h2>Events per day <span class="accent">· community</span></h2>
+            <canvas id="chart-events"></canvas>
+          </div>
+          <div class="card">
+            <h2>Best model per task type <span class="accent">· top 1 by success rate</span></h2>
+            <div id="bestper-list" class="bestper-task"></div>
+          </div>
+        </section>
+
+        <section class="card table-card">
+          <h2>Model Comparison <span class="accent">· which model wins in the community</span></h2>
+          <div class="table-wrap compare-table community-compare">
+            <table class="community-table">
+              <thead>
+                <tr>
+                  <th data-sort-key="model">Model <span class="sort-indicator"></span></th>
+                  <th data-sort-key="n" class="sorted-desc">Events <span class="sort-indicator"></span></th>
+                  <th data-sort-key="success_rate">Success Rate <span class="sort-indicator"></span></th>
+                  <th data-sort-key="avg_duration_sec">Avg Duration (s) <span class="sort-indicator"></span></th>
+                  <th data-sort-key="avg_cost_usd">Avg Cost (USD) <span class="sort-indicator"></span></th>
+                </tr>
+              </thead>
+              <tbody id="models-tbody"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+
+      <section id="community-empty-block" class="community-empty">
+        <strong>No data yet.</strong><br>
+        Waiting for the first contributor to share anonymous metrics. The dashboard will populate automatically as soon as data arrives.
+      </section>
+    </section>
+
+    <section id="participate">
+      <div class="section-heading">
+        <h2>How to participate</h2>
+        <p>Three steps. Default OFF until you flip it.</p>
+      </div>
+
+      <div class="card">
+        <ol class="privacy-list">
+          <li><strong>Get a token.</strong> Click the button below. One token per IP per hour. The plaintext token is shown <strong>exactly once</strong> — we only store its SHA-256 hash.</li>
+          <li><strong>Install mcp-metrics.</strong> <a href="https://github.com/Kabzhanov/metrics" target="_blank" rel="noopener" style="color:var(--accent)">github.com/Kabzhanov/metrics</a> — open-source MCP-сервер для метрик AI-агентов.</li>
+          <li><strong>Opt-in share.</strong> Add the snippet to <code>~/.config/mcp-metrics/config.yaml</code> and set <code>share.enabled: true</code>. Your local daemon ships anonymous batches every <code>interval_hours</code>.</li>
+        </ol>
+      </div>
+
+      <div class="card">
+        <h2>Get your token</h2>
+        <label class="help-text" for="note-input">Optional note (e.g. "Rashid's local instance")</label>
+        <input type="text" id="note-input" class="form-input" maxlength="100" placeholder="Label for your own records">
+        <button id="issue-btn" class="btn-primary" type="button">Get my token</button>
+        <span id="issue-status" class="help-text" style="margin-left:10px"></span>
+
+        <div id="result-panel" class="hidden" style="margin-top:18px">
+          <h3 style="color:var(--text);font-size:14px;margin:0 0 6px">Save this token now</h3>
+          <div class="warn-box">We will <strong>never</strong> show it again. If you lose it, revoke it and request a new one.</div>
+          <div id="token-display" class="token-block"></div>
+          <button id="copy-btn" class="btn-secondary" type="button">Copy to clipboard</button>
+          <span id="copy-status" class="help-text" style="margin-left:8px"></span>
+
+          <h3 style="color:var(--text);font-size:14px;margin:18px 0 6px">Install in mcp-metrics</h3>
+          <p class="help-text">Add to <code>~/.config/mcp-metrics/config.yaml</code>:</p>
+          <pre id="install-snippet" class="code-snippet" style="background:var(--code-bg);border:1px solid var(--card-border);border-radius:8px;padding:14px;overflow-x:auto;font-size:13px;color:#c7d1dc"></pre>
+
+          <h3 style="color:var(--text);font-size:14px;margin:18px 0 6px">Revoke later</h3>
+          <p class="help-text">If you want to stop contributing, just hit this endpoint with your token:</p>
+          <pre class="code-snippet" style="background:var(--code-bg);border:1px solid var(--card-border);border-radius:8px;padding:14px;overflow-x:auto;font-size:13px;color:#c7d1dc">curl -X DELETE "https://bizdnai.com/metrics/api_central.php?token=&lt;paste-here&gt;"</pre>
+          <p class="help-text">Revocation is idempotent — subsequent submissions return <code>{"error":"invalid_token"}</code> and are dropped.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="privacy">
+      <div class="section-heading">
+        <h2>Privacy &amp; control</h2>
+        <p>What we collect. What we don't. How to delete.</p>
+      </div>
+
+      <div class="card">
+        <h2>What we collect — and what we don't</h2>
+        <div class="table-wrap">
+          <table class="privacy-table" style="width:100%;border-collapse:collapse">
+            <thead>
+              <tr style="border-bottom:1px solid var(--card-border)">
+                <th style="text-align:left;padding:10px;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:0.05em">Field</th>
+                <th style="text-align:left;padding:10px;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:0.05em">Shared?</th>
+                <th style="text-align:left;padding:10px;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:0.05em">Why</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr style="border-bottom:1px solid rgba(255,255,255,0.05)"><td><code>model</code></td><td class="yes">yes</td><td>core signal</td></tr>
+              <tr style="border-bottom:1px solid rgba(255,255,255,0.05)"><td><code>task_type</code></td><td class="yes">yes</td><td>core signal</td></tr>
+              <tr style="border-bottom:1px solid rgba(255,255,255,0.05)"><td><code>started_at_day</code> (rounded to day)</td><td class="yes">yes</td><td>aggregation period</td></tr>
+              <tr style="border-bottom:1px solid rgba(255,255,255,0.05)"><td><code>duration_sec</code></td><td class="yes">yes</td><td>core signal</td></tr>
+              <tr style="border-bottom:1px solid rgba(255,255,255,0.05)"><td><code>cost_usd</code></td><td class="yes">yes</td><td>core signal</td></tr>
+              <tr style="border-bottom:1px solid rgba(255,255,255,0.05)"><td><code>status</code> (success/failed/interrupted)</td><td class="yes">yes</td><td>core signal</td></tr>
+              <tr style="border-bottom:1px solid rgba(255,255,255,0.05)"><td><code>hashed_opaque_id</code></td><td class="yes">yes</td><td>SHA-256 prefix — correlates events within one batch but cannot be reversed</td></tr>
+              <tr style="border-bottom:1px solid rgba(255,255,255,0.05)"><td><code>files_changed_count</code></td><td class="optional">optional</td><td>off by default; count only, no paths</td></tr>
+              <tr style="border-bottom:1px solid rgba(255,255,255,0.05)"><td><code>tokens_in</code> / <code>tokens_out</code></td><td class="no">no</td><td>not collected</td></tr>
+              <tr style="border-bottom:1px solid rgba(255,255,255,0.05)"><td><code>project_id</code> / <code>repo</code></td><td class="no">no</td><td>would identify you</td></tr>
+              <tr style="border-bottom:1px solid rgba(255,255,255,0.05)"><td><code>file_paths</code> / <code>commands</code> / <code>prompts</code></td><td class="no">no</td><td>proprietary code — never</td></tr>
+              <tr><td><code>user_task</code> (description) / raw <code>task_id</code></td><td class="no">no</td><td>would identify you</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>How to delete your data</h2>
+        <ul class="privacy-list">
+          <li><strong>Revoke your token</strong> — <code>DELETE /metrics/api_central.php?token=&lt;your-token&gt;</code>. Stops future submissions from being accepted.</li>
+          <li><strong>Full DSAR</strong> — not yet available. Roadmap: per-token bulk delete. For now, revoke + ask <a href="mailto:ceo@bizdnai.com" style="color:var(--accent)">ceo@bizdnai.com</a> for cleanup of historical rows.</li>
+          <li><strong>Anti-poisoning</strong> — server-side whitelist (<code>ALLOWED_MODEL_PREFIXES</code>) drops models outside the trusted-producer list before insert.</li>
+          <li><strong>Rate limit</strong> — 100 submissions / hour / token. Anti-abuse.</li>
+        </ul>
+      </div>
+    </section>
+  </main>
+
+  <footer class="py-8 bg-gray-900 text-center" style="position:relative;z-index:1;margin-top:32px">
+    <p class="text-gray-300">© 2025–2026 BizDNAi. Все права защищены / All rights reserved. · AI Models Metrics Community</p>
+    <p class="text-gray-500 text-xs max-w-3xl mx-auto mt-4 px-4">
+      Federated, anonymous metrics from opt-in mcp-metrics instances. No PII, no proprietary code, no leaderboard.
+    </p>
+    <p class="text-gray-500 text-xs mt-3">
+      <span>Open-source engine: </span><a href="https://github.com/Kabzhanov/metrics" target="_blank" rel="noopener" class="text-[#00D4FF] hover:text-[#D81BFF]">github.com/Kabzhanov/metrics</a>
+    </p>
+    <div class="flex justify-center flex-wrap gap-x-4 gap-y-2 mt-4">
+      <a href="/metrics/" class="text-[#00D4FF] hover:text-[#D81BFF]">Metrics</a>
+      <a href="/metrics/community/" class="text-[#00D4FF] hover:text-[#D81BFF]">Community</a>
+      <a href="/privacy-policy/" class="text-[#00D4FF] hover:text-[#D81BFF]">Privacy Policy</a>
+      <a href="mailto:ceo@bizdnai.com" class="text-[#00D4FF] hover:text-[#D81BFF]">ceo@bizdnai.com</a>
+    </div>
+    <div class="text-gray-500 text-xs mt-3">
+      Source: <code>central_metrics</code> (БД bizdnai :5434) · cached 5 min
+    </div>
+  </footer>
+
+  <script>
+    // Neural-bg — портирован из bizdnai.com/index.html.
+    (function () {
+      const canvas = document.getElementById('neural-bg');
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      let dots = [];
+      let dpr = window.devicePixelRatio || 1;
+      const COUNT = 55;
+      const RADIUS = 120;
+
+      function resize() {
+        dpr = window.devicePixelRatio || 1;
+        canvas.width = window.innerWidth * dpr;
+        canvas.height = window.innerHeight * dpr;
+        canvas.style.width = window.innerWidth + 'px';
+        canvas.style.height = window.innerHeight + 'px';
+      }
+
+      function init() {
+        dots = [];
+        for (let i = 0; i < COUNT; i += 1) {
+          dots.push({
+            x: Math.random() * canvas.width,
+            y: Math.random() * canvas.height,
+            vx: (Math.random() - 0.5) * 0.3 * dpr,
+            vy: (Math.random() - 0.5) * 0.3 * dpr,
+            r: (Math.random() * 1.5 + 0.8) * dpr
+          });
+        }
+      }
+
+      function draw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        for (const dot of dots) {
+          dot.x += dot.vx;
+          dot.y += dot.vy;
+          if (dot.x < 0 || dot.x > canvas.width) dot.vx *= -1;
+          if (dot.y < 0 || dot.y > canvas.height) dot.vy *= -1;
+          ctx.beginPath();
+          ctx.arc(dot.x, dot.y, dot.r, 0, Math.PI * 2);
+          ctx.fillStyle = 'rgba(0, 212, 255, 0.7)';
+          ctx.fill();
+        }
+        for (let i = 0; i < dots.length; i += 1) {
+          for (let j = i + 1; j < dots.length; j += 1) {
+            const dx = dots[i].x - dots[j].x;
+            const dy = dots[i].y - dots[j].y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            if (distance < RADIUS * dpr) {
+              ctx.beginPath();
+              ctx.moveTo(dots[i].x, dots[i].y);
+              ctx.lineTo(dots[j].x, dots[j].y);
+              ctx.strokeStyle = 'rgba(0, 255, 255, ' + ((1 - distance / (RADIUS * dpr)) * 0.3) + ')';
+              ctx.lineWidth = 0.6 * dpr;
+              ctx.stroke();
+            }
+          }
+        }
+        window.requestAnimationFrame(draw);
+      }
+
+      window.addEventListener('resize', function () { resize(); init(); });
+      resize();
+      init();
+      draw();
+    }());
+  </script>
+
+  <script>
+    // Community dashboard — load /api_community.php, render, refresh every 5 min.
+    (function () {
+      const REFRESH_MS = 5 * 60 * 1000;
+      let eventsChart = null;
+      let lastPayload = null;
+
+      const $ = (id) => document.getElementById(id);
+
+      function fmtRate(v) {
+        if (v === null || v === undefined) return '—';
+        return (Math.round(v * 1000) / 10).toFixed(1) + '%';
+      }
+      function fmtNum(v) {
+        if (v === null || v === undefined) return '—';
+        return new Intl.NumberFormat('en-US').format(v);
+      }
+      function fmtSec(v) {
+        if (v === null || v === undefined) return '—';
+        return (Math.round(v * 10) / 10).toFixed(1) + 's';
+      }
+      function fmtUsd(v) {
+        if (v === null || v === undefined) return '—';
+        return '$' + (Math.round(v * 10000) / 10000).toFixed(4);
+      }
+      function fmtDate(s) {
+        if (!s) return '—';
+        return s;
+      }
+
+      function rateClass(v) {
+        if (v === null || v === undefined) return '';
+        if (v >= 0.85) return 'good-cell';
+        if (v >= 0.6) return 'mid-cell';
+        return 'bad-cell';
+      }
+
+      function renderModelsTable(rows) {
+        const tbody = $('models-tbody');
+        if (!rows.length) {
+          tbody.innerHTML = '<tr><td colspan="5" style="padding:24px;text-align:center;color:var(--muted)">No model data yet.</td></tr>';
+          return;
+        }
+        tbody.innerHTML = rows.map((r) => {
+          return '<tr>'
+            + '<td><span class="model-name">' + escapeHtml(r.model) + '</span></td>'
+            + '<td>' + fmtNum(r.n) + '</td>'
+            + '<td class="' + rateClass(r.success_rate) + '">' + fmtRate(r.success_rate) + '</td>'
+            + '<td>' + fmtSec(r.avg_duration_sec) + '</td>'
+            + '<td>' + fmtUsd(r.avg_cost_usd) + '</td>'
+            + '</tr>';
+        }).join('');
+        wireSortableModels();
+      }
+
+      function renderBestPerTask(rows) {
+        const list = $('bestper-list');
+        if (!rows.length) {
+          list.innerHTML = '<div class="muted">No task-type data yet.</div>';
+          return;
+        }
+        list.innerHTML = rows.map((r) => {
+          const pct = r.best_mqi === null || r.best_mqi === undefined ? '—' : (Math.round(r.best_mqi * 1000) / 10).toFixed(1) + '%';
+          return '<div class="bestper-card">'
+            + '<div class="task-label">' + escapeHtml(r.task_type) + '</div>'
+            + '<div class="task-model">' + escapeHtml(r.best_model) + ' <span style="color:#facc15">★</span></div>'
+            + '<div class="task-meta">success rate <strong>' + pct + '</strong> · n = ' + fmtNum(r.n) + '</div>'
+            + '</div>';
+        }).join('');
+      }
+
+      function renderChart(days) {
+        const labels = days.map((d) => d.day);
+        const data = days.map((d) => d.events);
+        const ctx = $('chart-events').getContext('2d');
+        if (eventsChart) eventsChart.destroy();
+        eventsChart = new Chart(ctx, {
+          type: 'line',
+          data: {
+            labels: labels,
+            datasets: [{
+              label: 'Events',
+              data: data,
+              borderColor: '#00D4FF',
+              backgroundColor: 'rgba(0, 212, 255, 0.15)',
+              borderWidth: 2,
+              fill: true,
+              tension: 0.3,
+              pointRadius: 3,
+              pointBackgroundColor: '#00D4FF',
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: {
+              x: { ticks: { color: '#8b94a3', maxRotation: 0, autoSkip: true }, grid: { color: 'rgba(255,255,255,0.05)' } },
+              y: { ticks: { color: '#8b94a3' }, grid: { color: 'rgba(255,255,255,0.05)' }, beginAtZero: true }
+            }
+          }
+        });
+      }
+
+      function render(payload) {
+        lastPayload = payload;
+        const total = payload.summary ? payload.summary.total_events : 0;
+        const submitters = payload.summary ? payload.summary.unique_submitters : 0;
+        const models = payload.summary ? payload.summary.unique_models : 0;
+        const types = payload.summary ? payload.summary.unique_task_types : 0;
+
+        $('kpi-events').textContent = fmtNum(total);
+        $('kpi-submitters').textContent = fmtNum(submitters);
+        $('kpi-models').textContent = fmtNum(models);
+        $('kpi-task-types').textContent = fmtNum(types);
+
+        const isEmpty = total === 0;
+        if (isEmpty) {
+          $('community-data-block').classList.add('hidden');
+          $('community-empty-block').classList.remove('hidden');
+        } else {
+          $('community-data-block').classList.remove('hidden');
+          $('community-empty-block').classList.add('hidden');
+          renderModelsTable(payload.by_model || []);
+          renderBestPerTask(payload.by_task_type || []);
+          renderChart(payload.by_day || []);
+        }
+
+        const stamp = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+        const period = (payload.summary && payload.summary.period_start)
+          ? payload.summary.period_start + ' → ' + (payload.summary.period_end || 'today')
+          : 'no data';
+        $('community-updated').innerHTML = '<span class="refresh-dot"></span>updated ' + stamp + ' · ' + period;
+      }
+
+      function escapeHtml(s) {
+        return String(s).replace(/[&<>"']/g, function (c) {
+          return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c];
+        });
+      }
+
+      let sortKey = 'n';
+      let sortDir = 'desc';
+      function wireSortableModels() {
+        const ths = document.querySelectorAll('.community-table thead th[data-sort-key]');
+        ths.forEach((th) => {
+          th.addEventListener('click', function () {
+            const key = th.getAttribute('data-sort-key');
+            if (sortKey === key) {
+              sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+            } else {
+              sortKey = key;
+              sortDir = key === 'n' ? 'desc' : 'asc';
+            }
+            ths.forEach((t) => t.classList.remove('sorted-asc', 'sorted-desc'));
+            th.classList.add(sortDir === 'asc' ? 'sorted-asc' : 'sorted-desc');
+            if (!lastPayload) return;
+            const sorted = (lastPayload.by_model || []).slice().sort(function (a, b) {
+              const av = a[key];
+              const bv = b[key];
+              if (av === null && bv === null) return 0;
+              if (av === null) return 1;
+              if (bv === null) return -1;
+              if (typeof av === 'number') return sortDir === 'asc' ? av - bv : bv - av;
+              return sortDir === 'asc' ? String(av).localeCompare(String(bv)) : String(bv).localeCompare(String(av));
+            });
+            renderModelsTable(sorted);
+          });
+        });
+      }
+
+      async function load() {
+        try {
+          const resp = await fetch('/metrics/api_community.php', { headers: { 'Accept': 'application/json' } });
+          if (!resp.ok) throw new Error('HTTP ' + resp.status);
+          const data = await resp.json();
+          render(data);
+        } catch (err) {
+          $('community-updated').innerHTML = '<span class="refresh-dot" style="background:var(--err);box-shadow:0 0 8px var(--err)"></span>fetch failed: ' + escapeHtml(err.message);
+        }
+      }
+
+      load();
+      setInterval(load, REFRESH_MS);
+    }());
+  </script>
+
+  <script>
+    // Token issuance form (shared logic with F2).
+    (function () {
+      const btn = document.getElementById('issue-btn');
+      const status = document.getElementById('issue-status');
+      const noteInput = document.getElementById('note-input');
+      const resultPanel = document.getElementById('result-panel');
+      const tokenDisplay = document.getElementById('token-display');
+      const copyBtn = document.getElementById('copy-btn');
+      const copyStatus = document.getElementById('copy-status');
+      const installSnippet = document.getElementById('install-snippet');
+
+      btn.addEventListener('click', function () {
+        btn.disabled = true;
+        status.textContent = 'Issuing token…';
+        status.className = 'help-text';
+        fetch('/metrics/api_token_issue.php', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ note: noteInput.value || '' }),
+        }).then(function (resp) {
+          return resp.json().then(function (data) { return { status: resp.status, data: data }; });
+        }).then(function (out) {
+          if (out.status === 201 && out.data && out.data.token) {
+            status.textContent = '';
+            tokenDisplay.textContent = out.data.token;
+            installSnippet.textContent = out.data.install.snippet;
+            resultPanel.classList.remove('hidden');
+            status.className = 'help-text ok-text';
+            status.textContent = 'Token issued. Save it now — we will not show it again.';
+            btn.textContent = 'Issue another';
+            btn.disabled = false;
+          } else if (out.data && out.data.error === 'rate_limit') {
+            status.className = 'help-text err-text';
+            status.textContent = 'One token per IP per hour. Please try again later.';
+            btn.disabled = false;
+          } else {
+            status.className = 'help-text err-text';
+            status.textContent = 'Could not issue token: ' + (out.data && out.data.error || ('HTTP ' + out.status));
+            btn.disabled = false;
+          }
+        }).catch(function (err) {
+          status.className = 'help-text err-text';
+          status.textContent = 'Network error: ' + err.message;
+          btn.disabled = false;
+        });
+      });
+
+      copyBtn.addEventListener('click', function () {
+        const t = tokenDisplay.textContent || '';
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(t).then(function () {
+            copyStatus.textContent = 'Copied.';
+          }, function () {
+            copyStatus.textContent = 'Copy failed; select the text manually.';
+          });
+        } else {
+          copyStatus.textContent = 'Clipboard API unavailable; select the text manually.';
+        }
+      });
+    }());
+  </script>
+</body>
+</html>

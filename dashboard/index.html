@@ -1,0 +1,651 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BizDNAi · AI Models Metrics</title>
+  <link rel="icon" href="https://bizdnai.com/favicon.ico">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <style>
+    header.page { padding-top: 104px; }
+
+    .metrics-tabs {
+      display: flex;
+      gap: 6px;
+      width: fit-content;
+      max-width: 100%;
+      padding: 5px;
+      overflow-x: auto;
+      background: var(--card);
+      border: 1px solid var(--card-border);
+      border-radius: 10px;
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+    }
+    .tab-button {
+      flex: 0 0 auto;
+      padding: 8px 15px;
+      border: 1px solid transparent;
+      border-radius: 7px;
+      color: var(--muted);
+      background: transparent;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+    }
+    .tab-button:hover {
+      color: var(--text);
+      border-color: rgba(255, 255, 255, 0.10);
+    }
+    .tab-button.active {
+      color: var(--accent);
+      background: rgba(0, 212, 255, 0.12);
+      border-color: rgba(0, 212, 255, 0.42);
+      box-shadow: 0 0 18px rgba(0, 212, 255, 0.08);
+    }
+    .tab-button:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+    .metrics-header-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .live-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 8px 12px;
+      color: var(--muted);
+      background: var(--card);
+      border: 1px solid var(--card-border);
+      border-radius: 9px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .live-toggle .live-badge {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--muted);
+    }
+    .live-toggle.connected { color: var(--ok); border-color: rgba(74, 222, 128, 0.45); }
+    .live-toggle.connected .live-badge { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+    .live-toggle.connecting { color: var(--warn); }
+    .live-toggle.connecting .live-badge { background: var(--warn); }
+    .live-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .tab-panel[hidden] { display: none; }
+    .tab-heading { margin: 0 0 14px; }
+    .tab-heading h2 {
+      margin: 0 0 3px;
+      color: var(--text);
+      font-size: 18px;
+      font-weight: 700;
+    }
+    .tab-heading p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    /* Verified grid: 6 KPI columns on wide, 3 on mid, 2 on small. */
+    .kpis.verified { grid-template-columns: repeat(6, 1fr); }
+    @media (max-width: 1280px) { .kpis.verified { grid-template-columns: repeat(3, 1fr); } }
+    @media (max-width: 700px)  { .kpis.verified { grid-template-columns: repeat(2, 1fr); } }
+    .grid.verified { grid-template-columns: 1fr; }
+
+    .pending-banner {
+      display: none;
+      margin-bottom: 18px;
+      padding: 12px 16px;
+      color: var(--warn);
+      background: rgba(245, 158, 11, 0.12);
+      border: 1px solid rgba(245, 158, 11, 0.35);
+      border-radius: 10px;
+      font-size: 13px;
+    }
+    .pending-banner.show { display: block; }
+
+    /* Compare by task type. */
+    .compare-kpis { grid-template-columns: repeat(4, 1fr); }
+    @media (max-width: 1100px) { .compare-kpis { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 600px)  { .compare-kpis { grid-template-columns: 1fr; } }
+
+    .filters-row {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .filter-group {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .filter-group label {
+      color: var(--muted);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .chip-multiselect {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      max-width: 720px;
+    }
+    .chip {
+      padding: 4px 10px;
+      color: var(--text);
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.10);
+      border-radius: 999px;
+      font-size: 11px;
+      cursor: pointer;
+      user-select: none;
+      transition: all 0.15s ease;
+    }
+    .chip:hover { border-color: rgba(0, 212, 255, 0.4); }
+    .chip.active {
+      color: var(--accent);
+      background: rgba(0, 212, 255, 0.18);
+      border-color: var(--accent);
+    }
+    .chip:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 1px;
+    }
+    .table-wrap.compare-table {
+      max-height: 70vh;
+      overflow: auto;
+    }
+    .compare-table table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    .compare-table th {
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      padding: 12px 10px;
+      color: var(--muted);
+      background: rgba(15, 23, 42, 0.95);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.10);
+      backdrop-filter: blur(8px);
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      cursor: pointer;
+      user-select: none;
+    }
+    .compare-table th:hover { color: var(--accent); }
+    .compare-table th .sort-indicator {
+      display: inline-block;
+      margin-left: 4px;
+      font-size: 10px;
+      opacity: 0.4;
+    }
+    .compare-table th.sorted-asc .sort-indicator::before  { content: '▲'; opacity: 1; }
+    .compare-table th.sorted-desc .sort-indicator::before { content: '▼'; opacity: 1; }
+    .compare-table td {
+      padding: 10px;
+      color: var(--text);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+      font-size: 13px;
+    }
+    .compare-table tbody tr:hover { background: rgba(0, 212, 255, 0.05); }
+    .compare-table .best-row { background: rgba(74, 222, 128, 0.06); }
+    .best-badge {
+      display: inline-block;
+      margin-left: 6px;
+      padding: 1px 8px;
+      color: var(--ok);
+      background: rgba(74, 222, 128, 0.15);
+      border: 1px solid rgba(74, 222, 128, 0.4);
+      border-radius: 6px;
+      font-size: 10px;
+      font-weight: 600;
+      vertical-align: middle;
+    }
+    .task-pill {
+      display: inline-block;
+      padding: 2px 8px;
+      color: #a78bfa;
+      background: rgba(167, 139, 250, 0.12);
+      border: 1px solid rgba(167, 139, 250, 0.35);
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 500;
+    }
+    .model-name {
+      color: var(--accent);
+      font-family: "JetBrains Mono", ui-monospace, monospace;
+    }
+    .good-cell { color: var(--ok); }
+    .mid-cell  { color: var(--warn); }
+    .bad-cell  { color: var(--err); }
+
+    .chip .chip-count {
+      display: inline-block;
+      margin-left: 6px;
+      padding: 0 6px;
+      color: var(--muted);
+      background: rgba(255, 255, 255, 0.07);
+      border-radius: 999px;
+      font-size: 10px;
+      font-weight: 600;
+      vertical-align: 1px;
+    }
+    .chip.active .chip-count {
+      color: var(--accent);
+      background: rgba(0, 212, 255, 0.18);
+    }
+
+    .active-filters {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 10px;
+      align-items: center;
+    }
+    .active-filters .pill-label {
+      color: var(--muted);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-right: 4px;
+    }
+    .filter-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 3px 6px 3px 10px;
+      color: var(--accent);
+      background: rgba(0, 212, 255, 0.10);
+      border: 1px solid rgba(0, 212, 255, 0.32);
+      border-radius: 999px;
+      font-size: 11px;
+    }
+    .filter-pill button {
+      width: 16px;
+      height: 16px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+      color: var(--accent);
+      background: transparent;
+      border: 0;
+      border-radius: 50%;
+      font-size: 13px;
+      line-height: 1;
+      cursor: pointer;
+    }
+    .filter-pill button:hover { background: rgba(0, 212, 255, 0.22); }
+
+    .compare-summary {
+      margin: 10px 2px 0;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .compare-summary strong { color: var(--text); font-weight: 600; }
+
+    .reval-button {
+      padding: 7px 12px;
+      color: var(--accent);
+      background: rgba(0, 212, 255, 0.10);
+      border: 1px solid rgba(0, 212, 255, 0.35);
+      border-radius: 7px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .reval-button:hover { background: rgba(0, 212, 255, 0.18); }
+    .reval-button:disabled { opacity: 0.55; cursor: wait; }
+    .metrics-toast {
+      position: fixed;
+      right: 20px;
+      bottom: 20px;
+      z-index: 100;
+      max-width: min(420px, calc(100vw - 40px));
+      padding: 12px 16px;
+      color: var(--text);
+      background: rgba(15, 23, 42, 0.97);
+      border: 1px solid var(--ok);
+      border-radius: 9px;
+      box-shadow: 0 12px 35px rgba(0, 0, 0, 0.35);
+      font-size: 13px;
+    }
+    .metrics-toast.error { border-color: var(--err); }
+
+    @media (max-width: 700px) {
+      header.page { padding-top: 132px; }
+      .metrics-tabs { width: 100%; }
+      .tab-button { flex: 1 0 auto; }
+      .updated { width: 100%; margin-left: 0; }
+    }
+  </style>
+</head>
+<body>
+  <canvas id="neural-bg"></canvas>
+
+  <nav class="navbar fixed top-0 w-full px-4 py-4" style="z-index:20">
+    <div class="max-w-6xl mx-auto flex items-center justify-between flex-wrap gap-3">
+      <a href="/" class="flex items-center gap-2">
+        <img src="/logo.png" alt="BizDNAi" class="h-8">
+      </a>
+      <div class="flex items-center gap-3 flex-wrap">
+        <a href="/" class="text-sm text-gray-300 hover:text-[#00D4FF]">Главная</a>
+        <a href="/index/" class="text-sm font-semibold text-gray-300 hover:text-[#00D4FF]">AI Trust Index</a>
+        <a href="/valiq/" class="text-sm font-semibold text-gray-300 hover:text-[#00D4FF]">ValIQ</a>
+        <a href="/metrics/" class="text-sm font-semibold text-[#00D4FF]">Metrics</a>
+        <a href="https://t.me/bizdnai" target="_blank" rel="noopener noreferrer" class="tg-cta-btn inline-flex items-center gap-1.5 text-sm font-semibold" style="color:#00D4FF">
+          <svg width="14" height="14" viewBox="0 0 240 240" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false"><path fill="currentColor" d="M120 0C53.7 0 0 53.7 0 120s53.7 120 120 120 120-53.7 120-120S186.3 0 120 0Zm55.6 82.3-19.8 93.3c-1.5 6.7-5.4 8.3-11 5.2l-30.4-22.4-14.7 14.1c-1.6 1.6-3 3-6.1 3l2.2-30.9 56.2-50.8c2.4-2.2-.5-3.4-3.7-1.2l-69.5 43.8-29.9-9.3c-6.5-2-6.6-6.5 1.4-9.6l117-45.1c5.4-2 10.2 1.3 8.3 9.9Z"/></svg>
+          Telegram
+        </a>
+        <a href="/index/app/" class="text-sm font-semibold" style="background:#00D4FF;color:#000;padding:6px 14px;border-radius:8px">Кабинет →</a>
+      </div>
+    </div>
+  </nav>
+
+  <header class="page">
+    <h1>AI Models <span class="accent">Metrics</span></h1>
+    <p class="subtitle">Какая модель для какой задачи</p>
+    <div class="metrics-header-row">
+      <div class="metrics-tabs" role="tablist" aria-label="Разделы метрик">
+        <button id="tab-overview" class="tab-button active" type="button" role="tab" aria-selected="true" aria-controls="panel-overview" onclick="showTab('overview')">Overview</button>
+        <button id="tab-verified" class="tab-button" type="button" role="tab" aria-selected="false" aria-controls="panel-verified" tabindex="-1" onclick="showTab('verified')">Verified</button>
+        <button id="tab-compare" class="tab-button" type="button" role="tab" aria-selected="false" aria-controls="panel-compare" tabindex="-1" onclick="showTab('compare')">Compare by Task Type</button>
+      </div>
+      <button id="live-toggle" class="live-toggle" type="button" aria-pressed="true" title="Включить или выключить live-обновления">
+        <span class="live-badge" aria-hidden="true"></span>
+        <span id="live-label">Live</span>
+      </button>
+    </div>
+  </header>
+
+  <main>
+    <section id="panel-overview" class="tab-panel" role="tabpanel" aria-labelledby="tab-overview">
+      <div class="tab-heading">
+        <h2>Overview</h2>
+        <p>Open metrics dashboard · обновляется каждые 5 минут</p>
+      </div>
+      <div class="controls">
+        <label for="overview-period">Период:</label>
+        <select id="overview-period">
+          <option value="7">7 дней</option>
+          <option value="30" selected>30 дней</option>
+          <option value="90">90 дней</option>
+        </select>
+        <button id="reval-stability" class="reval-button" type="button">Re-evaluate stability</button>
+        <label for="overview-model">Модель:</label>
+        <select id="overview-model">
+          <option value="">Все модели</option>
+        </select>
+        <span id="overview-updated" class="updated"><span class="dot"></span>загрузка…</span>
+      </div>
+
+      <section class="kpis">
+        <div class="kpi"><span class="kpi-label">Задач всего</span><span id="overview-kpi-total" class="kpi-value acc">—</span></div>
+        <div class="kpi"><span class="kpi-label">Success Rate</span><span id="overview-kpi-rate" class="kpi-value ok">—</span></div>
+        <div class="kpi"><span class="kpi-label">Avg Duration</span><span id="overview-kpi-duration" class="kpi-value warn">—</span></div>
+        <div class="kpi"><span class="kpi-label">Total Cost</span><span id="overview-kpi-cost" class="kpi-value">—</span></div>
+      </section>
+
+      <section class="grid">
+        <div class="card">
+          <h2>Success Rate по дням <span class="accent">· %</span></h2>
+          <canvas id="overview-chart-rate"></canvas>
+        </div>
+        <div class="card">
+          <h2>Avg Duration по дням <span class="accent">· sec</span></h2>
+          <canvas id="overview-chart-duration"></canvas>
+        </div>
+        <div class="card">
+          <h2>Avg Cost по дням <span class="accent">· USD</span></h2>
+          <canvas id="overview-chart-cost"></canvas>
+        </div>
+        <div class="card">
+          <h2>Tasks по моделям <span class="accent">· total</span></h2>
+          <canvas id="overview-chart-tasks"></canvas>
+        </div>
+      </section>
+
+      <section class="card table-card">
+        <h2>Последние 20 задач</h2>
+        <div class="table-wrap">
+          <table id="overview-recent-table">
+            <thead>
+              <tr>
+                <th data-sort-key="task_id">Task ID <span class="sort-indicator"></span></th>
+                <th data-sort-key="model">Model <span class="sort-indicator"></span></th>
+                <th data-sort-key="status">Status <span class="sort-indicator"></span></th>
+                <th data-sort-key="duration_sec">Duration (s) <span class="sort-indicator"></span></th>
+                <th data-sort-key="cost_usd">Cost (USD) <span class="sort-indicator"></span></th>
+                <th data-sort-key="started_at">Started <span class="sort-indicator"></span></th>
+              </tr>
+            </thead>
+            <tbody id="overview-recent-body"></tbody>
+          </table>
+        </div>
+      </section>
+    </section>
+
+    <section id="panel-verified" class="tab-panel" role="tabpanel" aria-labelledby="tab-verified" hidden>
+      <div class="tab-heading">
+        <h2>Verified Metrics</h2>
+        <p>Cross-checked verified-only runs · обновляется каждые 5 минут</p>
+      </div>
+      <div class="controls">
+        <label for="verified-period">Период:</label>
+        <select id="verified-period">
+          <option value="7">7 дней</option>
+          <option value="30" selected>30 дней</option>
+          <option value="90">90 дней</option>
+        </select>
+        <label for="verified-model">Модель:</label>
+        <select id="verified-model">
+          <option value="">Все модели</option>
+        </select>
+        <span id="verified-updated" class="updated"><span class="dot"></span>загрузка…</span>
+      </div>
+      <div id="verified-pending-banner" class="pending-banner">
+        Pending verification: run_evaluations пусты — данные появятся после первого batch verification.
+      </div>
+
+      <section class="kpis verified">
+        <div class="kpi"><span class="kpi-label">Verified Success Rate</span><span id="verified-kpi-rate" class="kpi-value ok">—</span></div>
+        <div class="kpi"><span class="kpi-label">First Pass Success</span><span id="verified-kpi-fps" class="kpi-value acc">—</span></div>
+        <div class="kpi"><span class="kpi-label">Median Duration</span><span id="verified-kpi-median" class="kpi-value warn">—</span></div>
+        <div class="kpi"><span class="kpi-label">P75 Duration</span><span id="verified-kpi-p75" class="kpi-value warn">—</span></div>
+        <div class="kpi"><span class="kpi-label">P90 Duration</span><span id="verified-kpi-p90" class="kpi-value warn">—</span></div>
+        <div class="kpi"><span class="kpi-label">Cost / Verified Success</span><span id="verified-kpi-cost" class="kpi-value">—</span></div>
+      </section>
+
+      <section class="grid verified">
+        <div class="card">
+          <h2>Verified Success Rate по дням <span class="accent">· % по моделям</span></h2>
+          <canvas id="verified-chart-rate"></canvas>
+        </div>
+        <div class="card">
+          <h2>First Pass Success по дням <span class="accent">· % по моделям</span></h2>
+          <canvas id="verified-chart-fps"></canvas>
+        </div>
+        <div class="card">
+          <h2>Median Duration по дням <span class="accent">· sec по моделям</span></h2>
+          <canvas id="verified-chart-duration"></canvas>
+        </div>
+      </section>
+    </section>
+
+    <section id="panel-compare" class="tab-panel" role="tabpanel" aria-labelledby="tab-compare" hidden>
+      <div class="tab-heading">
+        <h2>Model Comparison by Task Type</h2>
+        <p>Какая модель лучше для какой задачи</p>
+      </div>
+      <div class="controls">
+        <div class="filters-row">
+          <div class="filter-group">
+            <label for="compare-period">Период</label>
+            <select id="compare-period">
+              <option value="7">7 дней</option>
+              <option value="30" selected>30 дней</option>
+              <option value="90">90 дней</option>
+            </select>
+          </div>
+          <div class="filter-group" style="flex:1;min-width:280px">
+            <label>Task Type</label>
+            <div id="compare-task-type-chips" class="chip-multiselect">
+              <button class="chip active" type="button" data-value="all">All</button>
+            </div>
+          </div>
+          <div class="filter-group">
+            <label>Быстрый выбор</label>
+            <div class="chip-multiselect">
+              <button class="chip" type="button" id="compare-quick-all">All</button>
+              <button class="chip" type="button" id="compare-quick-top3">Top 3</button>
+              <button class="chip" type="button" id="compare-quick-reset">Reset</button>
+            </div>
+          </div>
+        </div>
+        <div id="compare-active-filters" class="active-filters" hidden></div>
+        <span id="compare-updated" class="updated"><span class="dot"></span>загрузка…</span>
+      </div>
+
+      <section class="kpis compare-kpis">
+        <div class="kpi"><span class="kpi-label">Total Runs</span><span id="compare-kpi-runs" class="kpi-value acc">—</span></div>
+        <div class="kpi"><span class="kpi-label">Models × Task Types</span><span id="compare-kpi-cross" class="kpi-value">—</span></div>
+        <div class="kpi"><span class="kpi-label">Avg Success Rate</span><span id="compare-kpi-rate" class="kpi-value ok">—</span></div>
+        <div class="kpi"><span class="kpi-label">Avg MQI Preview</span><span id="compare-kpi-mqi" class="kpi-value warn">—</span></div>
+      </section>
+      <p id="compare-summary-text" class="compare-summary">—</p>
+
+      <section class="card table-card">
+        <h2>Comparison Table <span class="accent">· model × task_type</span></h2>
+        <div class="table-wrap compare-table">
+          <table id="compare-table">
+            <thead>
+              <tr>
+                <th data-sort-key="model">Model <span class="sort-indicator"></span></th>
+                <th data-sort-key="task_type">Task Type <span class="sort-indicator"></span></th>
+                <th data-sort-key="total_runs" class="sorted-desc">Total Runs <span class="sort-indicator"></span></th>
+                <th data-sort-key="success_rate">Success Rate (%) <span class="sort-indicator"></span></th>
+                <th data-sort-key="avg_duration_sec">Avg Duration (s) <span class="sort-indicator"></span></th>
+                <th data-sort-key="avg_cost_usd">Avg Cost (USD) <span class="sort-indicator"></span></th>
+                <th data-sort-key="stability_rate">Stability (%) <span class="sort-indicator"></span></th>
+                <th data-sort-key="mqi_preview">MQI Preview <span class="sort-indicator"></span></th>
+              </tr>
+            </thead>
+            <tbody id="compare-body"></tbody>
+          </table>
+        </div>
+        <p id="compare-empty-msg" style="display:none;text-align:center;padding:32px;color:#9CA3AF">
+          Нет данных для выбранных фильтров.
+        </p>
+      </section>
+    </section>
+  </main>
+
+  <div id="metrics-toast" class="metrics-toast" role="status" aria-live="polite" hidden></div>
+
+  <footer class="py-8 bg-gray-900 text-center" style="position:relative;z-index:1">
+    <p class="text-gray-300">© 2025–2026 BizDNAi. Все права защищены / All rights reserved. · AI Models Metrics</p>
+    <p class="text-gray-500 text-xs max-w-3xl mx-auto mt-4 px-4">
+      Open-source MCP-сервер для метрик AI-агентов: model quality, verified success, duration and cost analysis.
+    </p>
+    <p class="text-gray-500 text-xs mt-3">
+      <span>Open-source engine: </span><a href="https://github.com/Kabzhanov/metrics" target="_blank" rel="noopener" class="text-[#00D4FF] hover:text-[#D81BFF]">github.com/Kabzhanov/metrics</a>
+    </p>
+    <div class="flex justify-center flex-wrap gap-x-4 gap-y-2 mt-4">
+      <a href="mailto:ceo@bizdnai.com" class="text-[#00D4FF] hover:text-[#D81BFF]">ceo@bizdnai.com</a>
+      <a href="/" class="text-[#00D4FF] hover:text-[#D81BFF]">bizdnai.com</a>
+      <a href="#overview" class="text-[#00D4FF] hover:text-[#D81BFF]">Overview</a>
+      <a href="#verified" class="text-[#00D4FF] hover:text-[#D81BFF]">Verified</a>
+      <a href="#compare" class="text-[#00D4FF] hover:text-[#D81BFF]">Compare</a>
+      <a href="/privacy-policy/" class="text-[#00D4FF] hover:text-[#D81BFF]">Privacy Policy</a>
+    </div>
+    <div class="src text-gray-500 text-xs mt-3">
+      Источники: <code>metrics_tasks_v</code> · <code>metrics_verified_v</code> · <code>metrics_by_task_type_v</code> (БД bizdnai :5434)
+    </div>
+  </footer>
+
+  <script>
+    // Neural network background — портирован из bizdnai.com/index.html.
+    (function () {
+      const canvas = document.getElementById('neural-bg');
+      const ctx = canvas.getContext('2d');
+      let dots = [];
+      let dpr = window.devicePixelRatio || 1;
+      const COUNT = 55;
+      const RADIUS = 120;
+
+      function resize() {
+        dpr = window.devicePixelRatio || 1;
+        canvas.width = window.innerWidth * dpr;
+        canvas.height = window.innerHeight * dpr;
+        canvas.style.width = window.innerWidth + 'px';
+        canvas.style.height = window.innerHeight + 'px';
+      }
+
+      function init() {
+        dots = [];
+        for (let i = 0; i < COUNT; i += 1) {
+          dots.push({
+            x: Math.random() * canvas.width,
+            y: Math.random() * canvas.height,
+            vx: (Math.random() - 0.5) * 0.3 * dpr,
+            vy: (Math.random() - 0.5) * 0.3 * dpr,
+            r: (Math.random() * 1.5 + 0.8) * dpr
+          });
+        }
+      }
+
+      function draw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        for (const dot of dots) {
+          dot.x += dot.vx;
+          dot.y += dot.vy;
+          if (dot.x < 0 || dot.x > canvas.width) dot.vx *= -1;
+          if (dot.y < 0 || dot.y > canvas.height) dot.vy *= -1;
+          ctx.beginPath();
+          ctx.arc(dot.x, dot.y, dot.r, 0, Math.PI * 2);
+          ctx.fillStyle = 'rgba(0, 212, 255, 0.7)';
+          ctx.fill();
+        }
+        for (let i = 0; i < dots.length; i += 1) {
+          for (let j = i + 1; j < dots.length; j += 1) {
+            const dx = dots[i].x - dots[j].x;
+            const dy = dots[i].y - dots[j].y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            if (distance < RADIUS * dpr) {
+              ctx.beginPath();
+              ctx.moveTo(dots[i].x, dots[i].y);
+              ctx.lineTo(dots[j].x, dots[j].y);
+              ctx.strokeStyle = 'rgba(0, 255, 255, ' + ((1 - distance / (RADIUS * dpr)) * 0.3) + ')';
+              ctx.lineWidth = 0.6 * dpr;
+              ctx.stroke();
+            }
+          }
+        }
+        window.requestAnimationFrame(draw);
+      }
+
+      window.addEventListener('resize', function () {
+        resize();
+        init();
+      });
+      resize();
+      init();
+      draw();
+    }());
+  </script>
+  <script src="app.js?v=1176"></script>
+</body>
+</html>
