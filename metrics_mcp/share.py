@@ -355,8 +355,11 @@ class ShareSender:
 
         # HIGH #2 fix: separate already-sampled events (in queue with sampled=True) from new ones
         # so the 1% sample invariant holds across cycles (don't re-sample the same opaque_id).
-        already_sampled = [e for e in queued_events if e.get("_sampled")]
-        pending_sample_pool = [e for e in queued_events if not e.get("_sampled")] + fresh_events
+        already_sampled: list[dict[str, Any]] = []
+        pending_sample_pool: list[dict[str, Any]] = []
+        for event in queued_events:
+            (already_sampled if event.get("_sampled") else pending_sample_pool).append(event)
+        pending_sample_pool.extend(fresh_events)
         events = self._deduplicate([*already_sampled, *pending_sample_pool])
         if not events:
             return {"status": "idle", "events": 0}
@@ -391,13 +394,13 @@ class ShareSender:
             return {
                 "status": "failed",
                 "events": len(selected),
-                "deferred": len(deferred),
+                "deferred": len(deferred_new),
                 "retry_in_seconds": retry_seconds,
             }
 
         self.queue.remove(queued_items)
         logger.info("shared %d anonymous metrics events", len(selected))
-        return {"status": "sent", "events": len(selected), "deferred": len(deferred)}
+        return {"status": "sent", "events": len(selected), "deferred": len(deferred_new)}
 
     def run_forever(self, stop_event: threading.Event | None = None) -> None:
         stop = stop_event or threading.Event()
