@@ -1,7 +1,7 @@
 """Secure, stdio-based MCP server for AI-agent performance metrics.
 
 The server reads the ``metrics_tasks`` tables created by ``schema.sql`` and
-exposes four read-only tools. Database credentials are deliberately loaded
+exposes eleven read-only tools. Database credentials are deliberately loaded
 from environment variables; this module never supplies a password or user
 default. Importing the module and constructing the MCP server do not connect to
 PostgreSQL. Configuration is validated when the process starts or a database
@@ -11,14 +11,29 @@ connection is requested.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import logging
 import os
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 from typing import Any
 
 from .config import load_config
-from .queries import COMPARE_MODELS, DEGRADATION_REPORT, GET_METRICS, GET_MQI, RECOMMEND_MODEL
+from .queries import (
+    COMPARE_MODELS,
+    COMPARE_RUNS,
+    DEGRADATION_REPORT,
+    GET_BENCHMARK_RESULT,
+    GET_BENCHMARK_RUNS,
+    GET_DOCUMENTATION_HEALTH,
+    GET_METRICS,
+    GET_MODEL_PROFILE,
+    GET_MQI,
+    GET_RUN_METRICS,
+    GET_TASK_METRICS,
+    RECOMMEND_MODEL,
+)
 from .share import start_share_thread
 
 try:
@@ -395,6 +410,239 @@ def get_mqi(model: str, period: str = "7d") -> dict[str, Any]:
         return _err("get_mqi failed", detail=_redact_detail(error))
 
 
+def _as_float(value: Any) -> float | None:
+    """Convert PostgreSQL numeric values to JSON-friendly floats."""
+    return float(value) if value is not None else None
+
+
+def _plain(value: Any) -> Any:
+    """Recursively convert database values that json cannot encode directly."""
+    if isinstance(value, Decimal):
+        return float(value)
+    if isinstance(value, dict):
+        return {key: _plain(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_plain(item) for item in value]
+    return value
+
+
+async def get_task_metrics(task_id: int) -> dict[str, Any]:
+    """Get aggregated metrics for a task across all of its runs."""
+    if int(task_id) <= 0:
+        return _err("task_id must be a positive integer")
+    try:
+        with _connect() as conn, conn.cursor() as cur:
+            cur.execute(GET_TASK_METRICS, (int(task_id),))
+            rows = cur.fetchall()
+        return {
+            "task_id": int(task_id),
+            "runs": [
+                {
+                    "model": row["model"],
+                    "n": int(row["n"] or 0),
+                    "avg_duration_sec": _as_float(row["avg_duration"]),
+                    "avg_cost_usd": _as_float(row["avg_cost"]),
+                    "build_passed": bool(row["build_passed"]),
+                    "tests_passed": bool(row["tests_passed"]),
+                    "human_accepted": bool(row["human_accepted"]),
+                    "stable_runs": int(row["stable_runs"] or 0),
+                }
+                for row in rows
+            ],
+        }
+    except Exception as error:
+        logger.exception("get_task_metrics failed")
+        return _err("get_task_metrics failed", detail=_redact_detail(error))
+
+
+async def get_run_metrics(run_id: int) -> dict[str, Any]:
+    """Get metrics, evaluation, and human interventions for one run."""
+    if int(run_id) <= 0:
+        return _err("run_id must be a positive integer")
+    try:
+        with _connect() as conn, conn.cursor() as cur:
+            cur.execute(GET_RUN_METRICS, (int(run_id),))
+            rows = cur.fetchall()
+        if not rows:
+            return {"error": "not_found"}
+
+        row = rows[0]
+        token_values = (
+            row.get("input_tokens"),
+            row.get("output_tokens"),
+            row.get("cached_tokens"),
+        )
+        evaluation = None
+        if row.get("evaluation_id") is not None:
+            evaluation = {
+                "agent_completed": row.get("agent_completed"),
+                "build_passed": row.get("build_passed"),
+                "tests_passed": row.get("tests_passed"),
+                "lint_passed": row.get("lint_passed"),
+                "acceptance_passed": row.get("acceptance_passed"),
+                "human_accepted": row.get("human_accepted"),
+                "review_approved": row.get("review_approved"),
+                "stable_after_7d": row.get("stable_after_7d"),
+                "stable_after_30d": row.get("stable_after_30d"),
+                "reopened": row.get("reopened"),
+                "evaluation_score": _as_float(row.get("evaluation_score")),
+            }
+
+        interventions = []
+        seen_intervention_ids = set()
+        for item in rows:
+            intervention_id = item.get("intervention_id")
+            if intervention_id is None or intervention_id in seen_intervention_ids:
+                continue
+            seen_intervention_ids.add(intervention_id)
+            interventions.append({
+                "id": intervention_id,
+                "timestamp": item.get("intervention_timestamp"),
+                "type": item.get("intervention_type"),
+                "severity": item.get("intervention_severity"),
+                "description": item.get("intervention_description"),
+                "estimated_minutes": item.get("estimated_minutes"),
+            })
+
+        return {
+            "run_id": int(row["run_id"]),
+            "model": row["model"],
+            "agent": row.get("agent"),
+            "started_at": row.get("started_at"),
+            "completed_at": row.get("completed_at"),
+            "duration_sec": row.get("duration_sec"),
+            "cost_usd": _as_float(row.get("cost_usd")),
+            "tokens": {
+                "input": token_values[0],
+                "output": token_values[1],
+                "cached": token_values[2],
+                "total": sum(int(value or 0) for value in token_values),
+            },
+            "evaluation": evaluation,
+            "human_interventions": interventions,
+        }
+    except Exception as error:
+        logger.exception("get_run_metrics failed")
+        return _err("get_run_metrics failed", detail=_redact_detail(error))
+
+
+async def compare_runs(run_ids: list[int]) -> dict[str, Any]:
+    """Compare selected runs side by side in the caller's requested order."""
+    normalized_ids = [int(run_id) for run_id in run_ids]
+    if not normalized_ids:
+        return {"runs": []}
+    if any(run_id <= 0 for run_id in normalized_ids):
+        return _err("run_ids must contain positive integers")
+    try:
+        with _connect() as conn, conn.cursor() as cur:
+            cur.execute(COMPARE_RUNS, (normalized_ids,))
+            rows = cur.fetchall()
+        by_id = {int(row["id"]): row for row in rows}
+        return {
+            "runs": [
+                {
+                    "run_id": run_id,
+                    "model": row["model"],
+                    "started_at": row.get("started_at"),
+                    "duration_sec": row.get("duration_sec"),
+                    "cost_usd": _as_float(row.get("cost_usd")),
+                    "status": row.get("status"),
+                    "build_passed": row.get("build_passed"),
+                    "tests_passed": row.get("tests_passed"),
+                    "human_accepted": row.get("human_accepted"),
+                    "reopened": row.get("reopened"),
+                }
+                for run_id in normalized_ids
+                if (row := by_id.get(run_id)) is not None
+            ],
+        }
+    except Exception as error:
+        logger.exception("compare_runs failed")
+        return _err("compare_runs failed", detail=_redact_detail(error))
+
+
+async def get_model_profile(model: str, period_days: int = 30) -> dict[str, Any]:
+    """Get success, duration, and cost strengths by task type for a model."""
+    if not model or not model.strip():
+        return _err("model is required")
+    period_days = max(1, min(int(period_days or 30), 365))
+    try:
+        with _connect() as conn, conn.cursor() as cur:
+            cur.execute(GET_MODEL_PROFILE, (model, period_days))
+            rows = cur.fetchall()
+        return {
+            "model": model,
+            "period_days": period_days,
+            "by_task_type": [
+                {
+                    "task_type": row.get("task_type"),
+                    "n": int(row["n"] or 0),
+                    "success_rate": _as_float(row.get("success_rate")),
+                    "avg_duration_sec": _as_float(row.get("avg_dur")),
+                    "avg_cost_usd": _as_float(row.get("avg_cost")),
+                }
+                for row in rows
+            ],
+        }
+    except Exception as error:
+        logger.exception("get_model_profile failed")
+        return _err("get_model_profile failed", detail=_redact_detail(error))
+
+
+async def get_benchmark_result(benchmark_id: int) -> dict[str, Any]:
+    """Get one benchmark and all normalized task runs attached to it."""
+    if int(benchmark_id) <= 0:
+        return _err("benchmark_id must be a positive integer")
+    try:
+        with _connect() as conn, conn.cursor() as cur:
+            cur.execute(GET_BENCHMARK_RESULT, (int(benchmark_id),))
+            benchmark = cur.fetchone()
+            if not benchmark:
+                return {"error": "not_found"}
+            cur.execute(GET_BENCHMARK_RUNS, (int(benchmark_id),))
+            rows = cur.fetchall()
+        return {
+            "benchmark": _plain(dict(benchmark)),
+            "runs": [_plain(dict(row)) for row in rows],
+        }
+    except Exception as error:
+        logger.exception("get_benchmark_result failed")
+        return _err("get_benchmark_result failed", detail=_redact_detail(error))
+
+
+async def get_documentation_health(
+    project_id: int = 1,
+    period_days: int = 30,
+) -> dict[str, Any]:
+    """Get daily documentation-health rates using human acceptance as V1 proxy."""
+    if int(project_id) <= 0:
+        return _err("project_id must be a positive integer")
+    period_days = max(1, min(int(period_days or 30), 365))
+    try:
+        with _connect() as conn, conn.cursor() as cur:
+            cur.execute(GET_DOCUMENTATION_HEALTH, (int(project_id), period_days))
+            rows = cur.fetchall()
+        by_day = [
+            {
+                "day": row["day"],
+                "docs_synced": int(row["docs_synced"] or 0),
+                "total_tasks": int(row["total_tasks"] or 0),
+                "doc_sync_rate": _as_float(row.get("doc_sync_rate")),
+            }
+            for row in rows
+        ]
+        rates = [item["doc_sync_rate"] for item in by_day if item["doc_sync_rate"] is not None]
+        return {
+            "project_id": int(project_id),
+            "period_days": period_days,
+            "by_day": by_day,
+            "avg_doc_sync_rate": round(sum(rates) / len(rates), 4) if rates else None,
+        }
+    except Exception as error:
+        logger.exception("get_documentation_health failed")
+        return _err("get_documentation_health failed", detail=_redact_detail(error))
+
+
 # ---------------------------------------------------------------------------
 # MCP schema and transport
 # ---------------------------------------------------------------------------
@@ -481,6 +729,89 @@ TOOL_DEFS = [
             "required": ["model"],
         },
     },
+    {
+        "name": "get_task_metrics",
+        "description": "Get aggregated metrics for a task across all its runs.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "task_id": {"type": "integer", "description": "Task ID"},
+            },
+            "required": ["task_id"],
+        },
+    },
+    {
+        "name": "get_run_metrics",
+        "description": "Get metrics, evaluation, and interventions for one run.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "run_id": {"type": "integer", "description": "Run ID"},
+            },
+            "required": ["run_id"],
+        },
+    },
+    {
+        "name": "compare_runs",
+        "description": "Compare selected task runs side by side.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "run_ids": {
+                    "type": "array",
+                    "items": {"type": "integer"},
+                    "description": "Run IDs to compare",
+                },
+            },
+            "required": ["run_ids"],
+        },
+    },
+    {
+        "name": "get_model_profile",
+        "description": "Get a model's strengths, success, duration, and cost by task type.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "model": {"type": "string", "description": "Model identifier"},
+                "period_days": {
+                    "type": "integer",
+                    "default": 30,
+                    "description": "Look-back window in days (1-365)",
+                },
+            },
+            "required": ["model"],
+        },
+    },
+    {
+        "name": "get_benchmark_result",
+        "description": "Get a benchmark and all task runs attached to it.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "benchmark_id": {"type": "integer", "description": "Benchmark ID"},
+            },
+            "required": ["benchmark_id"],
+        },
+    },
+    {
+        "name": "get_documentation_health",
+        "description": "Get daily documentation-health metrics for a project.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "project_id": {
+                    "type": "integer",
+                    "default": 1,
+                    "description": "Project ID",
+                },
+                "period_days": {
+                    "type": "integer",
+                    "default": 30,
+                    "description": "Look-back window in days (1-365)",
+                },
+            },
+        },
+    },
 ]
 
 HANDLERS = {
@@ -495,6 +826,18 @@ HANDLERS = {
         args.get("window_days", 7),
     ),
     "get_mqi": lambda args: get_mqi(args.get("model", ""), args.get("period", "7d")),
+    "get_task_metrics": lambda args: get_task_metrics(args.get("task_id", 0)),
+    "get_run_metrics": lambda args: get_run_metrics(args.get("run_id", 0)),
+    "compare_runs": lambda args: compare_runs(args.get("run_ids", [])),
+    "get_model_profile": lambda args: get_model_profile(
+        args.get("model", ""),
+        args.get("period_days", 30),
+    ),
+    "get_benchmark_result": lambda args: get_benchmark_result(args.get("benchmark_id", 0)),
+    "get_documentation_health": lambda args: get_documentation_health(
+        args.get("project_id", 1),
+        args.get("period_days", 30),
+    ),
 }
 
 
@@ -523,6 +866,8 @@ def create_server() -> Any:
         else:
             try:
                 result = handler(arguments or {})
+                if inspect.isawaitable(result):
+                    result = await result
             except Exception as error:
                 logger.exception("tool %s crashed", name)
                 result = _err(f"tool {name} crashed", detail=_redact_detail(error))
@@ -580,10 +925,16 @@ __all__ = [
     "HANDLERS",
     "TOOL_DEFS",
     "compare_models",
+    "compare_runs",
     "create_server",
+    "get_benchmark_result",
     "get_degradation_report",
+    "get_documentation_health",
     "get_metrics",
+    "get_model_profile",
     "get_mqi",
+    "get_run_metrics",
+    "get_task_metrics",
     "main",
     "recommend_model",
     "run",

@@ -20,6 +20,12 @@ def test_package_imports_and_server_constructs_without_database():
         "recommend_model",
         "get_mqi",
         "get_degradation_report",
+        "get_task_metrics",
+        "get_run_metrics",
+        "compare_runs",
+        "get_model_profile",
+        "get_benchmark_result",
+        "get_documentation_health",
     }
 
 

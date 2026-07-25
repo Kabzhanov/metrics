@@ -18,8 +18,28 @@ DEFAULT_CONFIG = {
         "token": None,
         "interval_hours": 1,
         "include_files_changed_count": False,
-    }
+    },
+    # Phase 7.7 (задача #1207, спек §8.1): per-project required_checks.
+    # Канонический источник правды — колонка projects.required_checks в БД.
+    # Этот блок — fallback / override для локального dev / override через env.
+    # Имена проверок: build_passed | tests_passed | lint_passed |
+    # acceptance_passed | agent_completed.
+    "projects": {
+        # "<project_name>": ["build_passed", "tests_passed", ...]
+    },
 }
+
+# Имена валидных проверок — защита от опечаток при override.
+VALID_CHECKS = frozenset({
+    "agent_completed",
+    "build_passed",
+    "tests_passed",
+    "lint_passed",
+    "acceptance_passed",
+})
+
+# Дефолтный набор, если у проекта в БД нет override.
+DEFAULT_REQUIRED_CHECKS: list[str] = ["build_passed", "tests_passed"]
 
 DEFAULT_CONFIG_PATH = Path.home() / ".config" / "mcp-metrics" / "config.yaml"
 
@@ -54,6 +74,40 @@ def _parse_interval_hours(value: Any, *, source: str) -> int | float:
     if parsed <= 0:
         raise ValueError(f"{source} must be a positive number")
     return int(parsed) if parsed.is_integer() else parsed
+
+
+def _normalize_projects(raw_projects: Any) -> dict[str, list[str]]:
+    """Validate the per-project required_checks block.
+
+    Returns mapping {project_name: [check, ...]}. Unknown check names
+    raise ValueError — config-level typo protection.
+    """
+    if raw_projects is None:
+        return {}
+    if not isinstance(raw_projects, Mapping):
+        raise TypeError("projects config must be a mapping")
+    normalized: dict[str, list[str]] = {}
+    for name, checks in raw_projects.items():
+        if not isinstance(name, str) or not name:
+            raise ValueError("project names must be non-empty strings")
+        if checks is None:
+            normalized[name] = list(DEFAULT_REQUIRED_CHECKS)
+            continue
+        if not isinstance(checks, list):
+            raise TypeError(f"projects.{name} must be a list of check names")
+        cleaned: list[str] = []
+        for check in checks:
+            if not isinstance(check, str):
+                raise TypeError(f"projects.{name} entries must be strings")
+            if check not in VALID_CHECKS:
+                raise ValueError(
+                    f"projects.{name}: unknown check '{check}'; "
+                    f"valid: {sorted(VALID_CHECKS)}"
+                )
+            if check not in cleaned:
+                cleaned.append(check)
+        normalized[name] = cleaned or list(DEFAULT_REQUIRED_CHECKS)
+    return normalized
 
 
 def _normalize(raw: Mapping[str, Any] | None) -> dict[str, dict[str, Any]]:
@@ -91,6 +145,13 @@ def _normalize(raw: Mapping[str, Any] | None) -> dict[str, dict[str, Any]]:
     share["token"] = str(token).strip() if token is not None and str(token).strip() else None
 
     share["interval_hours"] = _parse_interval_hours(share["interval_hours"], source="share.interval_hours")
+
+    # Phase 7.7 (задача #1207): per-project required_checks override.
+    raw_projects = raw.get("projects", None)
+    if raw_projects is not None and not isinstance(raw_projects, Mapping):
+        raise TypeError("projects config must be a mapping")
+    config["projects"] = _normalize_projects(raw_projects)
+
     return config
 
 
@@ -143,4 +204,43 @@ def load_config(
     return _normalize(config)
 
 
-__all__ = ["DEFAULT_CONFIG", "DEFAULT_CONFIG_PATH", "load_config", "save_config"]
+def get_required_checks(
+    project_id: int,
+    project_name: str | None = None,
+    *,
+    config: Mapping[str, Any] | None = None,
+) -> list[str]:
+    """Return the list of required check names for a project.
+
+    Phase 7.7 (задача #1207, спек §8.1).
+
+    Resolution order:
+      1. If ``project_name`` matches a key in ``config['projects']`` — use it.
+      2. Otherwise fall back to :data:`DEFAULT_REQUIRED_CHECKS`.
+
+    Note: the **canonical** source of truth is the ``projects.required_checks``
+    column in the database (read by API endpoints via the
+    ``metrics_verified_per_project_v`` view). This helper exists for
+    Python callers that need the same defaults without a DB round-trip
+    (e.g. CLI tools, validators).
+    """
+    if config is None:
+        config = load_config()
+    if project_name:
+        projects_cfg = config.get("projects") or {}
+        if isinstance(projects_cfg, Mapping):
+            override = projects_cfg.get(project_name)
+            if isinstance(override, list) and override:
+                return list(override)
+    return list(DEFAULT_REQUIRED_CHECKS)
+
+
+__all__ = [
+    "DEFAULT_CONFIG",
+    "DEFAULT_CONFIG_PATH",
+    "DEFAULT_REQUIRED_CHECKS",
+    "VALID_CHECKS",
+    "get_required_checks",
+    "load_config",
+    "save_config",
+]
