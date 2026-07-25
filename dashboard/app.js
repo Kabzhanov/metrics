@@ -946,7 +946,11 @@
       }
       const params = new URLSearchParams(window.location.search);
       const tt = params.get('task_type');
-      if (tt) showRecommend(tt);
+      if (tt) {
+        // Auto-switch to Recommend tab and load
+        if (window.showTab) window.showTab('recommend');
+        showRecommend(tt);
+      }
     } catch (e) {
       console.error('recommend setup failed', e);
     }
