@@ -363,6 +363,7 @@
         <button id="tab-overview" class="tab-button active" type="button" role="tab" aria-selected="true" aria-controls="panel-overview" onclick="showTab('overview')">Overview</button>
         <button id="tab-verified" class="tab-button" type="button" role="tab" aria-selected="false" aria-controls="panel-verified" tabindex="-1" onclick="showTab('verified')">Verified</button>
         <button id="tab-compare" class="tab-button" type="button" role="tab" aria-selected="false" aria-controls="panel-compare" tabindex="-1" onclick="showTab('compare')">Compare by Task Type</button>
+        <button id="tab-recommend" class="tab-button" type="button" role="tab" aria-selected="false" aria-controls="panel-recommend" tabindex="-1" onclick="showTab('recommend')">Recommend</button>
       </div>
       <button id="live-toggle" class="live-toggle" type="button" aria-pressed="true" title="Включить или выключить live-обновления">
         <span class="live-badge" aria-hidden="true"></span>
@@ -549,6 +550,44 @@
         <p id="compare-empty-msg" style="display:none;text-align:center;padding:32px;color:#9CA3AF">
           Нет данных для выбранных фильтров.
         </p>
+      </section>
+    </section>
+
+    <section id="panel-recommend" class="tab-panel" role="tabpanel" aria-labelledby="tab-recommend" hidden>
+      <header class="page">
+        <h1>Какую модель выбрать?</h1>
+        <p class="subtitle">Выбери тип задачи — покажу лучшую модель и почему она лучше</p>
+      </header>
+
+      <section id="recommend-picker" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 mb-6"></section>
+
+      <section id="recommend-result" class="hidden">
+        <div class="best-card">
+          <div class="best-header">
+            <span class="star">★</span>
+            <div class="best-info">
+              <div class="best-overline">Лучший выбор для <span id="rec-task-label"></span></div>
+              <h2 class="best-model" id="rec-model">—</h2>
+              <div class="best-strength" id="rec-strength">—</div>
+            </div>
+          </div>
+          <div class="best-stats">
+            <div><div class="big" id="rec-success">—</div><div class="small">успешных</div></div>
+            <div><div class="big" id="rec-cost">—</div><div class="small">за задачу</div></div>
+            <div><div class="big" id="rec-time">—</div><div class="small">секунд</div></div>
+          </div>
+          <div class="why-title">Почему эта модель:</div>
+          <pre class="why-body" id="rec-reasoning">—</pre>
+          <div class="confidence muted" id="rec-confidence">—</div>
+        </div>
+        <h3 class="alt-title">Альтернативы</h3>
+        <div id="rec-alt-list" class="alt-grid"></div>
+      </section>
+
+      <section id="recommend-empty" class="hidden empty-state">
+        <div class="empty-icon">∅</div>
+        <div>Нет данных по этому типу задач за последние 30 дней.</div>
+        <div class="muted small">Попробуй другой тип или подожди пока накопится статистика.</div>
       </section>
     </section>
   </main>

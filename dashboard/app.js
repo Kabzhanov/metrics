@@ -3,7 +3,7 @@
   'use strict';
 
   const COLORS = ['#00D4FF', '#D81BFF', '#4ade80', '#f59e0b', '#a78bfa', '#06b6d4', '#ec4899', '#84cc16'];
-  const VALID_TABS = new Set(['overview', 'verified', 'compare']);
+  const VALID_TABS = new Set(['overview', 'verified', 'compare', 'recommend']);
   const overviewCharts = {};
   const verifiedCharts = {};
   let toastTimer = null;
@@ -918,10 +918,90 @@
   setupTabKeyboardNavigation();
   setupOverviewSort();
   setupCompareSort();
+
+  // ==================== Recommend ====================
+  const RECOMMEND_ICONS = {
+    architecture: '🏛️', feature: '✨', bugfix: '🔨', refactoring: '♻️',
+    testing: '🧪', documentation: '📚', frontend: '🎨', backend: '⚙️',
+    integration: '🔌', devops: '🚀', content_generation: '✍️', research: '🔍',
+  };
+
+  async function setupRecommendTab() {
+    const picker = document.getElementById('recommend-picker');
+    if (!picker) return;
+    try {
+      const r = await fetch('api_recommend.php');
+      const d = await r.json();
+      if (d.status !== 'ok' || !Array.isArray(d.available_task_types)) return;
+      picker.innerHTML = '';
+      for (const t of d.available_task_types) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'picker-card';
+        btn.innerHTML = '<div class="picker-icon">' + (RECOMMEND_ICONS[t.task_type] || '📦') + '</div>' +
+          '<div class="picker-label">' + escapeHTML(t.label) + '</div>' +
+          '<div class="picker-meta">' + t.runs + ' задач в истории</div>';
+        btn.addEventListener('click', () => showRecommend(t.task_type));
+        picker.appendChild(btn);
+      }
+      const params = new URLSearchParams(window.location.search);
+      const tt = params.get('task_type');
+      if (tt) showRecommend(tt);
+    } catch (e) {
+      console.error('recommend setup failed', e);
+    }
+  }
+
+  async function showRecommend(taskType) {
+    document.getElementById('recommend-result').classList.add('hidden');
+    document.getElementById('recommend-empty').classList.add('hidden');
+    try {
+      const r = await fetch('api_recommend.php?task_type=' + encodeURIComponent(taskType));
+      const d = await r.json();
+      if (d.status === 'insufficient_data') {
+        document.getElementById('recommend-empty').classList.remove('hidden');
+        return;
+      }
+      renderRecommend(d);
+      history.replaceState(null, '', '?task_type=' + encodeURIComponent(taskType));
+    } catch (e) {
+      console.error('recommend load failed', e);
+    }
+  }
+
+  function renderRecommend(d) {
+    const r = d.best;
+    document.getElementById('rec-task-label').textContent = d.task_type_label;
+    document.getElementById('rec-model').textContent = r.model;
+    document.getElementById('rec-strength').textContent = r.best_at;
+    document.getElementById('rec-success').textContent = Math.round(r.success_rate * 100) + '%';
+    document.getElementById('rec-cost').textContent = r.avg_cost_usd === 0 ? 'бесплатно' : '$' + r.avg_cost_usd.toFixed(3);
+    document.getElementById('rec-time').textContent = r.avg_duration_sec > 0 ? r.avg_duration_sec.toFixed(0) + 's' : '—';
+    document.getElementById('rec-reasoning').textContent = d.reasoning;
+    document.getElementById('rec-confidence').textContent = d.note_when_choosing;
+    const altList = document.getElementById('rec-alt-list');
+    altList.innerHTML = '';
+    for (const a of (d.alternatives || [])) {
+      const div = document.createElement('div');
+      div.className = 'alt-card';
+      div.innerHTML = '<div class="alt-header">' +
+          '<div class="alt-name">' + escapeHTML(a.model) + '</div>' +
+          '<div class="alt-bestat">' + escapeHTML(a.best_at) + '</div></div>' +
+        '<div class="alt-stats">' +
+          '<div><span class="alt-meta">успех</span><br>' + Math.round(a.success_rate * 100) + '%</div>' +
+          '<div><span class="alt-meta">цена</span><br>' + (a.avg_cost_usd === 0 ? 'free' : '$' + a.avg_cost_usd.toFixed(3)) + '</div>' +
+          '<div><span class="alt-meta">время</span><br>' + (a.avg_duration_sec > 0 ? a.avg_duration_sec.toFixed(0) + 's' : '—') + '</div>' +
+        '</div>' +
+        '<div class="alt-runs muted">' + a.total_runs + ' задач в истории</div>';
+      altList.appendChild(div);
+    }
+    document.getElementById('recommend-result').classList.remove('hidden');
+  }
   setupCompareQuickActions();
   setupCompareActiveFiltersDelegation();
   setupLiveToggle();
   initCompareFromURL();
+  setupRecommendTab();
   window.addEventListener('hashchange', handleHashNavigation);
   window.addEventListener('popstate', handleHashNavigation);
   showTab(tabFromHash(), false);
