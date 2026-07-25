@@ -210,6 +210,57 @@ GROUP BY date_trunc('day', tr.started_at)
 ORDER BY day
 """
 
+# Phase 7.7 (задача #1211, §10.1): фильтр по evidence_level
+# V0/V1 = "заявлено / вручную" — НЕ считаем для авто-рекомендации.
+# V2/V3/V4 = "auto / independent / continuous" — доверяем.
+GET_EVENTS_FOR_RECOMMEND = """
+SELECT
+    tr.model,
+    COUNT(*)                                                    AS n,
+    COUNT(*) FILTER (WHERE tr.status = 'success')               AS ok_count,
+    ROUND(AVG(tr.duration_sec) FILTER (WHERE tr.completed_at IS NOT NULL)) AS avg_sec,
+    ROUND(AVG(tr.cost)         FILTER (WHERE tr.completed_at IS NOT NULL)::numeric, 4) AS avg_cost
+FROM task_runs tr
+JOIN run_events re ON re.run_id = tr.id
+WHERE tr.task_id = (
+        SELECT id FROM tasks WHERE task_type = %s LIMIT 1
+    )
+  AND re.evidence_level IN ('V2', 'V3', 'V4')
+  AND tr.started_at >= %s
+  AND tr.completed_at IS NOT NULL
+GROUP BY tr.model
+ORDER BY ok_count DESC, avg_sec ASC NULLS LAST, avg_cost ASC NULLS LAST
+"""
+
+# Phase 7.7 (задача #1211, §10.3, §10.4): trust & integrity health
+GET_TRUST_HEALTH = """
+SELECT
+    'freshness' AS section,
+    freshness_category AS category,
+    total_events::int AS total,
+    COALESCE(fresh_security_1d, 0) + COALESCE(fresh_performance_1d, 0)
+        + COALESCE(fresh_vuln_7d, 0) + COALESCE(fresh_policy_30d, 0) AS fresh,
+    stale_count::int AS stale
+FROM metrics_freshness_v
+UNION ALL
+SELECT
+    'integrity' AS section,
+    model AS category,
+    total_events::int AS total,
+    distinct_manifests::int AS fresh,
+    0 AS stale
+FROM metrics_integrity_v
+ORDER BY section, category
+"""
+
+GET_EVIDENCE_DISTRIBUTION = """
+SELECT
+    evidence_level,
+    total_events::int AS total
+FROM metrics_evidence_v
+ORDER BY evidence_level
+"""
+
 __all__ = [
     "COMPARE_MODELS",
     "COMPARE_RUNS",
@@ -217,10 +268,13 @@ __all__ = [
     "GET_BENCHMARK_RESULT",
     "GET_BENCHMARK_RUNS",
     "GET_DOCUMENTATION_HEALTH",
+    "GET_EVIDENCE_DISTRIBUTION",
+    "GET_EVENTS_FOR_RECOMMEND",
     "GET_METRICS",
     "GET_MODEL_PROFILE",
     "GET_MQI",
     "GET_RUN_METRICS",
     "GET_TASK_METRICS",
+    "GET_TRUST_HEALTH",
     "RECOMMEND_MODEL",
 ]

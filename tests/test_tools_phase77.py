@@ -54,8 +54,10 @@ def run(coro):
 def test_phase77_tool_definitions_and_queries_are_registered():
     names = [tool["name"] for tool in server.TOOL_DEFS]
 
-    assert len(names) == 11
-    assert set(names[-6:]) == {
+    # 12 tools: 5 phase1 + 6 phase7.7 normalized + 1 phase7.7 trust (задача #1211).
+    assert len(names) == 12
+    # Phase 7.7 normalized-schema tools (positions 5-10).
+    assert set(names[5:11]) == {
         "get_task_metrics",
         "get_run_metrics",
         "compare_runs",
@@ -63,6 +65,8 @@ def test_phase77_tool_definitions_and_queries_are_registered():
         "get_benchmark_result",
         "get_documentation_health",
     }
+    # Phase 7.7 Trust & Integrity tool (задача #1211, §10.1, §10.3, §10.4).
+    assert names[11] == "get_trust_health"
     assert set(names) == set(server.HANDLERS)
     for statement in (
         queries.GET_TASK_METRICS,

@@ -27,11 +27,13 @@ from .queries import (
     GET_BENCHMARK_RESULT,
     GET_BENCHMARK_RUNS,
     GET_DOCUMENTATION_HEALTH,
+    GET_EVIDENCE_DISTRIBUTION,
     GET_METRICS,
     GET_MODEL_PROFILE,
     GET_MQI,
     GET_RUN_METRICS,
     GET_TASK_METRICS,
+    GET_TRUST_HEALTH,
     RECOMMEND_MODEL,
 )
 from .share import start_share_thread
@@ -610,6 +612,63 @@ async def get_benchmark_result(benchmark_id: int) -> dict[str, Any]:
         return _err("get_benchmark_result failed", detail=_redact_detail(error))
 
 
+async def get_trust_health() -> dict[str, Any]:
+    """Phase 7.7 (задача #1211, §10.3, §10.4): возвращает свежесть и integrity.
+
+    Структура:
+      freshness: [{category, total, fresh, stale}]
+      integrity: [{model, distinct_manifests, total_events}]
+      evidence:  {V0, V1, V2, V3, V4}  — counts per evidence level
+    """
+    try:
+        with _connect() as conn, conn.cursor() as cur:
+            cur.execute(GET_TRUST_HEALTH)
+            rows = cur.fetchall()
+            cur.execute(GET_EVIDENCE_DISTRIBUTION)
+            evidence_rows = cur.fetchall()
+    except Exception as error:
+        logger.exception("get_trust_health failed")
+        return _err("get_trust_health failed", detail=_redact_detail(error))
+
+    freshness = []
+    integrity = []
+    for row in rows:
+        item = {
+            "category": row["category"],
+            "total": int(row["total"] or 0),
+            "fresh": int(row["fresh"] or 0),
+            "stale": int(row["stale"] or 0),
+        }
+        if row["section"] == "freshness":
+            freshness.append(item)
+        elif row["section"] == "integrity":
+            integrity.append({
+                "model": row["category"],
+                "distinct_manifests": int(row["fresh"] or 0),
+                "total_events": int(row["total"] or 0),
+            })
+
+    # Сводка evidence: V0..V4
+    evidence = {"V0": 0, "V1": 0, "V2": 0, "V3": 0, "V4": 0}
+    for row in evidence_rows:
+        level = row["evidence_level"]
+        if level in evidence:
+            evidence[level] = int(row["total"] or 0)
+
+    total_stale = sum(item["stale"] for item in freshness)
+    return {
+        "status": "ok",
+        "freshness": freshness,
+        "integrity": integrity,
+        "evidence": evidence,
+        "stale_total": total_stale,
+        "warning": (
+            f"{total_stale} stale events past TTL — refresh or exclude from aggregates"
+            if total_stale > 0 else None
+        ),
+    }
+
+
 async def get_documentation_health(
     project_id: int = 1,
     period_days: int = 30,
@@ -812,6 +871,18 @@ TOOL_DEFS = [
             },
         },
     },
+    {
+        "name": "get_trust_health",
+        "description": (
+            "Phase 7.7 (задача #1211, §10.1, §10.3, §10.4): trust & integrity health. "
+            "Returns freshness per category, integrity (manifest_hash) per model, "
+            "and evidence level distribution (V0-V4)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+        },
+    },
 ]
 
 HANDLERS = {
@@ -838,6 +909,7 @@ HANDLERS = {
         args.get("project_id", 1),
         args.get("period_days", 30),
     ),
+    "get_trust_health": lambda args: get_trust_health(),
 }
 
 
@@ -935,6 +1007,7 @@ __all__ = [
     "get_mqi",
     "get_run_metrics",
     "get_task_metrics",
+    "get_trust_health",
     "main",
     "recommend_model",
     "run",

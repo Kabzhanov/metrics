@@ -77,6 +77,9 @@
     <div id="pending-banner" class="pending-banner">
       Pending verification: run_evaluations пусты — данные появятся после первого batch verification.
     </div>
+    <div id="stale-banner" class="pending-banner stale-banner" style="display:none">
+      <span id="stale-banner-text">Stale events: TTL exceeded (§10.3).</span>
+    </div>
   </header>
 
   <main>
@@ -237,13 +240,24 @@
       return r.json();
     }
 
-    function renderKPIs(kpis) {
+    function renderKPIs(kpis, freshness) {
       document.getElementById('kpi-rate').textContent   = fmtPct(kpis.verified_success_rate);
       document.getElementById('kpi-fps').textContent    = fmtPct(kpis.first_pass_success_rate);
       document.getElementById('kpi-median').textContent = fmtSec(kpis.median_duration_sec);
       document.getElementById('kpi-p75').textContent    = fmtSec(kpis.p75_duration_sec);
       document.getElementById('kpi-p90').textContent    = fmtSec(kpis.p90_duration_sec);
       document.getElementById('kpi-cost').textContent   = fmtUsd(kpis.cost_per_verified_success);
+      // Phase 7.7 (§10.3): stale banner
+      const sb = document.getElementById('stale-banner');
+      const sbText = document.getElementById('stale-banner-text');
+      if (freshness && freshness.stale_total > 0) {
+        sb.style.display = 'block';
+        const cats = (freshness.stale_categories || [])
+          .map(c => `${c.category}=${c.stale}`).join(', ');
+        sbText.textContent = `⚠ ${freshness.stale_total} stale event(s) past TTL — ${cats}. ${freshness.warning || ''}`;
+      } else {
+        sb.style.display = 'none';
+      }
     }
 
     function medianOf(values) {
@@ -364,7 +378,7 @@
         const kpis = data.kpis && data.kpis.median_duration_sec !== undefined
           ? data.kpis
           : computePeriodStats(data.models);
-        renderKPIs(kpis);
+        renderKPIs(kpis, data.freshness_alert);
 
         const days = data.days;
         renderChart('chart-rate',     'rate',     data.models, days, 'rate',     'verified_success_rate', 'Verified Success Rate (%)', (v) => v.toFixed(1) + '%');

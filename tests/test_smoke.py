@@ -26,6 +26,7 @@ def test_package_imports_and_server_constructs_without_database():
         "get_model_profile",
         "get_benchmark_result",
         "get_documentation_health",
+        "get_trust_health",   # Phase 7.7 (задача #1211, §10.1, §10.3, §10.4)
     }
 
 

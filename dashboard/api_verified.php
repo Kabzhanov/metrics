@@ -247,6 +247,60 @@ foreach ($models_out as $m) {
     }
 }
 
+// Phase 7.7 (задача #1211, §10.1, §10.3): freshness + evidence blocks.
+// 1) Evidence filter — counts of run_events per evidence_level (V0..V4).
+$evidence_filter = ['V0' => 0, 'V1' => 0, 'V2' => 0, 'V3' => 0, 'V4' => 0];
+try {
+    $stmtE = $pdo->query("SELECT evidence_level, COUNT(*) AS n FROM run_events GROUP BY evidence_level");
+    foreach ($stmtE->fetchAll() as $row) {
+        $lvl = (string)$row['evidence_level'];
+        if (array_key_exists($lvl, $evidence_filter)) {
+            $evidence_filter[$lvl] = (int)$row['n'];
+        }
+    }
+} catch (Throwable $e) {
+    // view/column may be missing on older deploys — keep zeros, log only
+    error_log('[metrics api_verified] evidence_filter_failed: ' . $e->getMessage());
+}
+$evidence_total = array_sum($evidence_filter);
+$evidence_untrusted = $evidence_filter['V0'] + $evidence_filter['V1'];
+
+// 2) Freshness alert — какие категории stale (per spec §10.3 TTL).
+$freshness_alert = [
+    'stale_categories'   => [],
+    'stale_total'        => 0,
+    'fresh_total'        => 0,
+    'warning'            => null,
+];
+try {
+    $stmtF = $pdo->query("
+        SELECT freshness_category, total_events, stale_count
+        FROM metrics_freshness_v
+        WHERE stale_count > 0
+        ORDER BY stale_count DESC
+    ");
+    foreach ($stmtF->fetchAll() as $row) {
+        $cat = (string)$row['freshness_category'];
+        $stale = (int)$row['stale_count'];
+        $freshness_alert['stale_categories'][] = [
+            'category' => $cat,
+            'stale'    => $stale,
+            'total'    => (int)$row['total_events'],
+        ];
+        $freshness_alert['stale_total'] += $stale;
+    }
+    $stmtT = $pdo->query("SELECT COALESCE(SUM(total_events), 0) AS n FROM metrics_freshness_v");
+    $freshness_alert['fresh_total'] = (int)$stmtT->fetchColumn();
+    if ($freshness_alert['stale_total'] > 0) {
+        $freshness_alert['warning'] = sprintf(
+            '%d событий протухло (TTL §10.3) — обновите или исключите из агрегатов',
+            $freshness_alert['stale_total']
+        );
+    }
+} catch (Throwable $e) {
+    error_log('[metrics api_verified] freshness_alert_failed: ' . $e->getMessage());
+}
+
 echo json_encode([
     'period_days'           => $days,
     'model_filter'          => $model,
@@ -265,6 +319,12 @@ echo json_encode([
         'human_intervention_rate'     => ($kpi_hi !== null && $kpi_total > 0) ? round($kpi_hi / $kpi_total, 4) : null,
         'total_cost_usd'              => $kpi_cost !== null ? round($kpi_cost, 4) : null,
         'cost_per_verified_success'   => ($kpi_cost !== null && $kpi_verif > 0) ? round($kpi_cost / $kpi_verif, 4) : null,
+    ],
+    'freshness_alert'  => $freshness_alert,                // Phase 7.7 (§10.3)
+    'evidence_filter'  => [                                // Phase 7.7 (§10.1)
+        'total'      => $evidence_total,
+        'untrusted'  => $evidence_untrusted,
+        'by_level'   => $evidence_filter,
     ],
     'generated_at' => date('c'),
 ], JSON_UNESCAPED_UNICODE);
