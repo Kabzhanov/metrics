@@ -19,7 +19,7 @@ docker compose up -d
 After the stack is up:
 
 - Dashboard:    http://localhost:8080/
-- MCP server:   http://localhost:8080/mcp/
+- MCP server:   **stdio transport** — connect via `docker compose run --rm -i metrics-mcp` (NOT HTTP)
 - PostgreSQL:   localhost:5434 (user/password from .env)
 
 `docker compose logs -f` tails logs from all services. `docker compose down`
@@ -31,9 +31,14 @@ docker_metrics_db`.
 | Service       | Image / Build        | Port (host) | Purpose                          |
 |---------------|----------------------|-------------|----------------------------------|
 | postgres      | postgres:15          | 5434        | Metrics database                 |
-| metrics-mcp   | build from ./..      | 8000        | Python MCP server (read-only)    |
+| metrics-mcp   | build from ./..      | (stdio)     | Python MCP server (read-only, stdio transport) |
 | dashboard     | php:8.3-fpm          | (internal)  | PHP dashboard + JSON APIs        |
 | nginx         | nginx:alpine         | 8080        | Reverse proxy / static + PHP     |
+
+**MCP server transport:** stdio only (per `server.py:541-552`). MCP clients
+(Claude Code, Codex) launch the server as a subprocess and communicate
+via stdin/stdout. There is **no HTTP listener** on the `metrics-mcp`
+container. Connecting to `localhost:8000/mcp/` will fail (no listener there).
 
 ## Volumes
 
